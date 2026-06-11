@@ -8,8 +8,8 @@
  *     "defaultResults": 10,
  *     "mergedResults": 20,
  *     "sources": {
- *       "exa": { "apiKey": "...", "resultLimit": 10 },
- *       "searxng": { "baseUrl": "http://localhost:8080" }
+ *       "exa": { "enabled": true, "apiKey": "...", "resultLimit": 10 },
+ *       "searxng": { "enabled": false, "baseUrl": "http://localhost:8080" }
  *     }
  *   }
  * }
@@ -32,6 +32,7 @@ export interface GuidanceFields {
 }
 
 export interface SearchSourceConfig {
+	enabled?: boolean;
 	apiKey?: string;
 	baseUrl?: string;
 	resultLimit?: number;
@@ -108,6 +109,7 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 function isSearchSourceConfig(value: unknown): value is SearchSourceConfig {
 	if (!isPlainObject(value)) return false;
+	if ("enabled" in value && value.enabled !== undefined && typeof value.enabled !== "boolean") return false;
 	if ("apiKey" in value && value.apiKey !== undefined && typeof value.apiKey !== "string") return false;
 	if ("baseUrl" in value && value.baseUrl !== undefined && typeof value.baseUrl !== "string") return false;
 	if ("resultLimit" in value && value.resultLimit !== undefined && typeof value.resultLimit !== "number") return false;

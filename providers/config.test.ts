@@ -72,9 +72,15 @@ describe("readConfig — released-shape compatibility", () => {
 		expect(cfg.apiKey).toBeUndefined();
 	});
 
-	it("loads per-source and merged result limits", () => {
-		writeRaw(JSON.stringify({ search: { defaultResults: 10, mergedResults: 25, sources: { exa: { resultLimit: 15 } } } }));
-		expect(readConfig()).toEqual({ search: { defaultResults: 10, mergedResults: 25, sources: { exa: { resultLimit: 15 } } } });
+	it("loads per-source enabled flags and result limits", () => {
+		writeRaw(
+			JSON.stringify({
+				search: { defaultResults: 10, mergedResults: 25, sources: { exa: { enabled: false, resultLimit: 15 } } },
+			}),
+		);
+		expect(readConfig()).toEqual({
+			search: { defaultResults: 10, mergedResults: 25, sources: { exa: { enabled: false, resultLimit: 15 } } },
+		});
 	});
 
 	it("loads the guidance subtree with web_search + web_fetch", () => {
@@ -139,9 +145,15 @@ describe("writeConfig", () => {
 		expect(readConfig()).toEqual({ search: { defaultResults: 7, sources: { brave: { apiKey: "k" } } } });
 	});
 
-	it("round-trips canonical result limits", () => {
-		expect(writeConfig({ search: { defaultResults: 10, mergedResults: 30, sources: { brave: { apiKey: "k", resultLimit: 12 } } } })).toBe(true);
-		expect(readConfig()).toEqual({ search: { defaultResults: 10, mergedResults: 30, sources: { brave: { apiKey: "k", resultLimit: 12 } } } });
+	it("round-trips canonical source flags and result limits", () => {
+		expect(
+			writeConfig({
+				search: { defaultResults: 10, mergedResults: 30, sources: { brave: { enabled: false, apiKey: "k", resultLimit: 12 } } },
+			}),
+		).toBe(true);
+		expect(readConfig()).toEqual({
+			search: { defaultResults: 10, mergedResults: 30, sources: { brave: { enabled: false, apiKey: "k", resultLimit: 12 } } },
+		});
 	});
 
 	it("preserves the interceptors.github stanza across save+load", () => {

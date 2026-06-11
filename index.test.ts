@@ -396,13 +396,39 @@ describe("web_search.execute — source-independent behavior", () => {
 		expect(stub.calls[0].url).toContain("api.search.brave.com");
 	});
 
+	it("disabled sources are skipped even when their env key is present", async () => {
+		process.env.BRAVE_SEARCH_API_KEY = "k";
+		writeConfig({ search: { sources: { brave: { enabled: false } } } });
+		const { captured } = registerAndCapture();
+		await expect(
+			captured.tools
+				.get("web_search")
+				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
+		).rejects.toThrow(/No search sources enabled\/configured/);
+	});
+
+	it("enabled self-hosted sources can be selected without key or URL", async () => {
+		writeConfig({ search: { sources: { onesearch: { enabled: true } } } });
+		const stub = stubFetch([
+			{
+				match: (u) => u.startsWith("http://localhost:5173/"),
+				response: () => new Response(JSON.stringify({ results: [] }), { status: 200 }),
+			},
+		]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		expect(new URL(stub.calls[0].url).host).toBe("localhost:5173");
+	});
+
 	it("throws setup guidance when no search source is configured", async () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
 				.get("web_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
-		).rejects.toThrow(/No search sources configured/);
+		).rejects.toThrow(/No search sources enabled\/configured/);
 	});
 
 	it("treats empty-string env key as unset", async () => {
@@ -1340,7 +1366,7 @@ describe("/web-tools command", () => {
 		const msg = (ctx.ui.notify as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(msg).toContain("sk-l...mnop");
 		expect(msg).toContain("sk-c...mnop");
-		expect(msg).toContain("brave: configured");
+		expect(msg).toContain("brave: configured, enabled=default");
 		expect(msg).not.toContain("active provider");
 		expect(msg).toContain("default per-source results: 8");
 		expect(msg).toContain("merged result count: 20");
@@ -1409,6 +1435,26 @@ describe("/web-tools command", () => {
 		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("7"), "info");
 	});
 
+	it("source-enable persists an enabled flag", async () => {
+		writeConfig({ search: { sources: { exa: { apiKey: "exa-key", enabled: false } } } });
+		const { captured } = registerAndCapture();
+		const ctx = createMockCtx({ hasUI: true });
+		await captured.commands.get("web-tools")?.handler("source-enable exa", ctx as never);
+		const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+		expect(saved.search.sources.exa).toEqual({ apiKey: "exa-key", enabled: true });
+		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("enabled"), "info");
+	});
+
+	it("source-disable persists a disabled flag", async () => {
+		writeConfig({ search: { sources: { exa: { apiKey: "exa-key" } } } });
+		const { captured } = registerAndCapture();
+		const ctx = createMockCtx({ hasUI: true });
+		await captured.commands.get("web-tools")?.handler("source-disable exa", ctx as never);
+		const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+		expect(saved.search.sources.exa).toEqual({ apiKey: "exa-key", enabled: false });
+		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("disabled"), "info");
+	});
+
 	it("two-step: select source then enter key", async () => {
 		writeConfig({ apiKey: "old", otherField: "keep" });
 		const { captured } = registerAndCapture();
@@ -1421,7 +1467,7 @@ describe("/web-tools command", () => {
 			search: {
 				sources: {
 					brave: { apiKey: "old" },
-					tavily: { apiKey: "tavily-key" },
+					tavily: { enabled: true, apiKey: "tavily-key" },
 				},
 			},
 			otherField: "keep",
@@ -1476,6 +1522,7 @@ describe("/web-tools command", () => {
 		await captured.commands.get("web-tools")?.handler("", ctx as never);
 		const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 		expect(saved.search.sources.exa.apiKey).toBe("exa-key");
+		expect(saved.search.sources.exa.enabled).toBe(true);
 		expect(saved.search.sources.brave.apiKey).toBe("brave-key");
 		expect(saved.provider).toBeUndefined();
 		expect(saved.apiKeys).toBeUndefined();
@@ -1490,6 +1537,7 @@ describe("/web-tools command", () => {
 		await captured.commands.get("web-tools")?.handler("", ctx as never);
 		const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 		expect(saved.search.sources.brave.apiKey).toBe("new-key");
+		expect(saved.search.sources.brave.enabled).toBe(true);
 		expect(saved.provider).toBeUndefined();
 		expect(saved.apiKeys).toBeUndefined();
 		expect(saved.apiKey).toBeUndefined();
@@ -1523,6 +1571,7 @@ describe("/web-tools command", () => {
 
 		const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 		expect(saved.search.sources.exa.apiKey).toBe("new-exa-key");
+		expect(saved.search.sources.exa.enabled).toBe(true);
 		expect(saved.provider).toBeUndefined();
 		expect(saved.apiKeys).toBeUndefined();
 	});

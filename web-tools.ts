@@ -3,8 +3,8 @@
  *
  * Provides `web_search` and `web_fetch` tools backed by configurable search
  * providers, plus the `/web-tools` slash command for search source
- * configuration. web_search queries all configured sources concurrently;
- * web_fetch uses URL interceptors, configured extraction providers, then
+ * configuration. web_search queries all enabled/configured sources concurrently;
+ * web_fetch uses URL interceptors, enabled/configured extraction providers, then
  * generic HTML fetch.
  *
  * API key resolution precedence per search source (first wins):
@@ -63,6 +63,8 @@ const SHOW_COMMAND = "show";
 const DEFAULT_RESULTS_COMMAND = "default-results";
 const MERGED_RESULTS_COMMAND = "merged-results";
 const SOURCE_RESULTS_COMMAND = "source-results";
+const SOURCE_ENABLE_COMMAND = "source-enable";
+const SOURCE_DISABLE_COMMAND = "source-disable";
 const UNSET_LABEL = "(not set)";
 
 // Brave is the only provider whose key was historically stored at the top
@@ -86,13 +88,13 @@ const saveConfig = writeConfig;
 export const DEFAULT_WEB_SEARCH_SNIPPET = "Search the web for up-to-date information";
 export const DEFAULT_WEB_SEARCH_GUIDELINES: string[] = [
 	"Use web_search for information beyond your training data — recent events, current library versions, live API documentation.",
-	"web_search queries all configured search sources concurrently, then merges and de-duplicates results by URL.",
+	"web_search queries all enabled/configured search sources concurrently, then merges and de-duplicates results by URL.",
 	"search.defaultResults controls the per-source request count; search.mergedResults controls the default final merged result count.",
 	"Only pass max_results when the user explicitly asks for a specific final result count; otherwise omit it so the configured search.mergedResults is used.",
 	'Use the current year from "Current date:" in your context when searching for recent information or documentation.',
 	'After answering using search results, include a "Sources:" section listing relevant URLs as markdown hyperlinks: [Title](URL). Never skip this.',
 	"Domain filtering is supported to include or block specific websites.",
-	"If no search source is configured, ask the user to run /web-tools before proceeding.",
+	"If no search source is enabled/configured, ask the user to run /web-tools before proceeding.",
 ];
 
 export const DEFAULT_WEB_FETCH_SNIPPET = "Fetch and read content from a specific URL";
@@ -204,6 +206,20 @@ function getCommandName(args: string): string {
 	return args.trim().split(/\s+/, 1)[0] ?? "";
 }
 
+function parseProviderNameArg(args: string, command: string): string | undefined {
+	const trimmed = args.trim();
+	const [currentCommand, rawProviderName, extra] = trimmed.split(/\s+/, 3);
+	if (currentCommand !== command) return undefined;
+	if (!rawProviderName || extra) {
+		throw new Error(`Usage: /${WEB_TOOLS_COMMAND_NAME} ${command} <source>`);
+	}
+	const providerName = rawProviderName.toLowerCase();
+	if (!PROVIDERS.some((provider) => provider.name === providerName)) {
+		throw new Error(`Unknown search source: ${rawProviderName}`);
+	}
+	return providerName;
+}
+
 function parseSourceResultsArg(args: string): { providerName: string; resultLimit: number } | undefined {
 	const trimmed = args.trim();
 	const [command, rawProviderName, rawValue] = trimmed.split(/\s+/, 3);
@@ -222,11 +238,21 @@ function parseSourceResultsArg(args: string): { providerName: string; resultLimi
 	return { providerName, resultLimit: parsed };
 }
 
+function isSourceDisabled(config: WebToolsConfig, providerName: string): boolean {
+	return config.search?.sources?.[providerName]?.enabled === false;
+}
+
+function sourceHasExplicitEnable(config: WebToolsConfig, providerName: string): boolean {
+	return config.search?.sources?.[providerName]?.enabled === true;
+}
+
 function isConfiguredSearchProvider(meta: ProviderMeta, config: WebToolsConfig): boolean {
 	if (!meta.roles.includes("search")) return false;
+	if (isSourceDisabled(config, meta.name)) return false;
 	const apiKey = resolveProviderApiKey(meta.name, config);
 	if (!meta.baseUrlEnvVar) return apiKey !== undefined;
 	return Boolean(
+		sourceHasExplicitEnable(config, meta.name) ||
 		apiKey ||
 		process.env[meta.baseUrlEnvVar]?.trim() ||
 		config.search?.sources?.[meta.name]?.baseUrl?.trim() ||
@@ -506,7 +532,7 @@ export function registerWebSearchTool(pi: ExtensionAPI): void {
 			const config = loadConfig();
 			const providers = instantiateSearchProviders(config);
 			if (providers.length === 0) {
-				throw new Error(`No search sources configured. Run /${WEB_TOOLS_COMMAND_NAME} to configure one or more sources.`);
+				throw new Error(`No search sources enabled/configured. Run /${WEB_TOOLS_COMMAND_NAME} to configure one or more sources.`);
 			}
 			const providerNames = providers.map(({ providerName }) => providerName);
 			const mergedResultLimit = resolveMergedResultLimit(params.max_results, config, providerNames);
@@ -548,7 +574,7 @@ export function registerWebSearchTool(pi: ExtensionAPI): void {
 
 			const failures = formatSourceFailures(failedResponses);
 			if (successfulResponses.length === 0) {
-				throw new Error(`All configured search sources failed: ${failures.join("; ")}`);
+				throw new Error(`All enabled/configured search sources failed: ${failures.join("; ")}`);
 			}
 
 			const sourceResultCounts = countResultsBySource(successfulResponses);
@@ -774,9 +800,15 @@ function formatShowConfigMessage(current: WebToolsConfig): string {
 		const envKey = meta.envVar ? process.env[meta.envVar]?.trim() : undefined;
 		const configKey = configuredSourceApiKey(current, meta.name);
 		const resolved = envKey ?? configKey;
-		const configured = isConfiguredSearchProvider(meta, current) ? "configured" : "not configured";
+		const enabled = current.search?.sources?.[meta.name]?.enabled;
+		const configured = isSourceDisabled(current, meta.name)
+			? "disabled"
+			: isConfiguredSearchProvider(meta, current)
+				? "configured"
+				: "not configured";
+		const enabledLabel = enabled === undefined ? "default" : String(enabled);
 		lines.push(
-			`    ${meta.name}: ${configured}, requestLimit=${getSourceResultLimit(current, meta.name)}, key=${maskApiKey(resolved)} (env: ${maskApiKey(envKey)}, config: ${maskApiKey(configKey)})`,
+			`    ${meta.name}: ${configured}, enabled=${enabledLabel}, requestLimit=${getSourceResultLimit(current, meta.name)}, key=${maskApiKey(resolved)} (env: ${maskApiKey(envKey)}, config: ${maskApiKey(configKey)})`,
 		);
 	}
 
@@ -809,7 +841,7 @@ function formatShowConfigMessage(current: WebToolsConfig): string {
 
 export function registerWebSearchConfigCommand(pi: ExtensionAPI): void {
 	pi.registerCommand(WEB_TOOLS_COMMAND_NAME, {
-		description: "Configure web_search sources, API keys, base URLs, per-source result counts, and merged result count",
+		description: "Configure web_search sources, enable/disable flags, API keys, base URLs, per-source result counts, and merged result count",
 		handler: async (args, ctx) => {
 			if (!ctx.hasUI) {
 				ctx.ui?.notify?.(`/${WEB_TOOLS_COMMAND_NAME} requires interactive mode`, "error");
@@ -868,6 +900,48 @@ export function registerWebSearchConfigCommand(pi: ExtensionAPI): void {
 						ctx.ui.notify(`${sourceResults.providerName} per-source result count set to ${sourceResults.resultLimit}`, "info");
 						return;
 					}
+
+					const sourceToEnable = parseProviderNameArg(args, SOURCE_ENABLE_COMMAND);
+					if (sourceToEnable !== undefined) {
+						const currentSource = current.search?.sources?.[sourceToEnable] ?? {};
+						const toSave: WebToolsConfig = {
+							...current,
+							search: {
+								...current.search,
+								sources: {
+									...current.search?.sources,
+									[sourceToEnable]: { ...currentSource, enabled: true },
+								},
+							},
+						};
+						if (!saveConfig(toSave)) {
+							ctx.ui.notify(`Failed to enable ${sourceToEnable} in ${CONFIG_PATH} — disk write failed`, "error");
+							return;
+						}
+						ctx.ui.notify(`${sourceToEnable} search source enabled`, "info");
+						return;
+					}
+
+					const sourceToDisable = parseProviderNameArg(args, SOURCE_DISABLE_COMMAND);
+					if (sourceToDisable !== undefined) {
+						const currentSource = current.search?.sources?.[sourceToDisable] ?? {};
+						const toSave: WebToolsConfig = {
+							...current,
+							search: {
+								...current.search,
+								sources: {
+									...current.search?.sources,
+									[sourceToDisable]: { ...currentSource, enabled: false },
+								},
+							},
+						};
+						if (!saveConfig(toSave)) {
+							ctx.ui.notify(`Failed to disable ${sourceToDisable} in ${CONFIG_PATH} — disk write failed`, "error");
+							return;
+						}
+						ctx.ui.notify(`${sourceToDisable} search source disabled`, "info");
+						return;
+					}
 				} catch (error) {
 					ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 					return;
@@ -879,8 +953,10 @@ export function registerWebSearchConfigCommand(pi: ExtensionAPI): void {
 				return;
 			}
 
-			const labelOf = (p: (typeof PROVIDERS)[number]) =>
-				isConfiguredSearchProvider(p, current) ? `${p.label} (configured)` : p.label;
+			const labelOf = (p: (typeof PROVIDERS)[number]) => {
+				if (isSourceDisabled(current, p.name)) return `${p.label} (disabled)`;
+				return isConfiguredSearchProvider(p, current) ? `${p.label} (configured)` : p.label;
+			};
 
 			const selectedLabel = await ctx.ui.select("Configure search source", PROVIDERS.map(labelOf), {});
 			if (selectedLabel === undefined || selectedLabel === null) {
@@ -907,7 +983,7 @@ export function registerWebSearchConfigCommand(pi: ExtensionAPI): void {
 					ctx.ui.notify("Web search config unchanged", "info");
 					return;
 				}
-				const nextSource = { ...currentSource };
+				const nextSource = { ...currentSource, enabled: true };
 				if (result.baseUrl !== undefined) nextSource.baseUrl = result.baseUrl;
 				if (result.apiKey) nextSource.apiKey = result.apiKey;
 				if (result.apiKey === null) delete nextSource.apiKey;
@@ -953,7 +1029,7 @@ export function registerWebSearchConfigCommand(pi: ExtensionAPI): void {
 					...current.search,
 					sources: {
 						...current.search?.sources,
-						[selectedProvider]: { ...currentSource, apiKey: keyToWrite },
+						[selectedProvider]: { ...currentSource, apiKey: keyToWrite, enabled: true },
 					},
 				},
 			};

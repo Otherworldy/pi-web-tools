@@ -8,13 +8,13 @@
   </a>
 </div>
 
-Let the model search the web and read pages. `rpiv-web-tools` adds `web_search` and `web_fetch` tools to [Pi Agent](https://github.com/badlogic/pi-mono) with pluggable providers (Brave, Tavily, Serper, Exa, You.com, Jina, Firecrawl, Perplexity, [SearXNG](https://docs.searxng.org/), [Ollama](https://ollama.com), OneSearch Relay), plus `/web-tools` for interactive search-source setup. `web_search` queries every configured search source concurrently and merges duplicate URLs; `web_fetch` uses URL interceptors, configured fetch-capable sources, then generic HTML fetch.
+Let the model search the web and read pages. `rpiv-web-tools` adds `web_search` and `web_fetch` tools to [Pi Agent](https://github.com/badlogic/pi-mono) with pluggable providers (Brave, Tavily, Serper, Exa, You.com, Jina, Firecrawl, Perplexity, [SearXNG](https://docs.searxng.org/), [Ollama](https://ollama.com), OneSearch Relay), plus `/web-tools` for interactive search-source setup. `web_search` queries every enabled/configured search source concurrently and merges duplicate URLs; `web_fetch` uses URL interceptors, enabled/configured fetch-capable sources, then generic HTML fetch.
 
 ![Search source configuration prompt](https://raw.githubusercontent.com/juicesharp/rpiv-mono/main/packages/rpiv-web-tools/docs/config.jpg)
 
 ## Providers
 
-Configure one or more search sources. `web_search` uses all configured search sources in parallel and de-duplicates merged URLs.
+Configure one or more search sources. `web_search` uses all enabled/configured search sources in parallel and de-duplicates merged URLs.
 
 | Source | Env var | Signup | Fetch mode |
 |---|---|---|---|
@@ -36,7 +36,7 @@ Configure one or more search sources. `web_search` uses all configured search so
 - **GitHub URL interceptor** - github.com URLs route through `gh`/`git` for full repository content (file tree, README, individual file contents) instead of the rendered HTML page. Enabled by default; disable with `"interceptors": { "github": false }` when needed. See [§GitHub URL interceptor](#github-url-interceptor).
 - **Large-page spillover** - oversized responses truncate inline and spill the full body to a temp file the model can read on demand.
 - **SSRF guard** - refuses loopback, RFC 1918, link-local, and cloud-metadata addresses (`localhost`, `127.0.0.0/8`, `10.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.168.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`).
-- **Interactive setup** - `/web-tools` lists search sources (configured ones marked) and writes to `~/.pi/agent/extensions/rpiv-web-tools/config.json` (chmod 0600); source env vars also work and take precedence over persisted keys. Configure multiple sources to enable multi-source search.
+- **Interactive setup** - `/web-tools` lists search sources (configured/disabled ones marked) and writes to `~/.pi/agent/extensions/rpiv-web-tools/config.json` (chmod 0600); source env vars also work and take precedence over persisted keys unless that source has `enabled: false`. Configure multiple sources to enable multi-source search.
 
 ## Install
 
@@ -48,10 +48,10 @@ Then restart your Pi session.
 
 ## Tools
 
-- **`web_search`** - query all configured search sources concurrently, merge titled snippets, and de-duplicate results by URL.
-  Each source uses `search.defaultResults` as its default request count (10), sources can override with `search.sources.<source>.resultLimit`, and the final merged result count defaults to `search.mergedResults` (20) or per-call `max_results`. No built-in maximum is imposed.
+- **`web_search`** - query all enabled/configured search sources concurrently, merge titled snippets, and de-duplicate results by URL.
+  Each source uses `search.defaultResults` as its default request count (10), sources can override with `search.sources.<source>.resultLimit`, `search.sources.<source>.enabled=false` disables a source, and the final merged result count defaults to `search.mergedResults` (20) or per-call `max_results`. No built-in maximum is imposed.
 - **`web_fetch`** - read an http/https URL. Lookup order: URL interceptors
-  (see [§GitHub URL interceptor](#github-url-interceptor)), configured fetch-capable sources
+  (see [§GitHub URL interceptor](#github-url-interceptor)), enabled/configured fetch-capable sources
   (Tavily/Exa/You.com/Jina/Firecrawl/Ollama), then generic raw HTTP + HTML-to-text fallback. Large responses truncate
   inline and spill the full body to a temp file the model can read on demand.
 
@@ -83,7 +83,7 @@ Returns:
 }
 ```
 
-Throws when no configured search source succeeds. If one source fails but another succeeds, the successful merged results are returned and source warnings are reported in `details.failures`.
+Throws when no enabled/configured search source succeeds. If one source fails but another succeeds, the successful merged results are returned and source warnings are reported in `details.failures`.
 
 ### Schema - `web_fetch`
 
@@ -119,6 +119,8 @@ Throws on invalid URL, non-http(s) protocol, private/loopback hostnames (SSRF gu
   Sources already configured show `(configured)`. Pressing Enter on an empty input keeps the existing value for the chosen source. Pass `show` to see all source keys (masked), env var status, per-source request counts, merged result count, and current URL interceptor states (see [§GitHub URL interceptor](#github-url-interceptor)).
 - **`/web-tools default-results <positive-integer>`** - set the default per-source request count. Default: 10.
 - **`/web-tools source-results <source> <positive-integer>`** - set one source's request count, e.g. `/web-tools source-results exa 15`.
+- **`/web-tools source-enable <source>`** - explicitly enable one source, e.g. `/web-tools source-enable onesearch`.
+- **`/web-tools source-disable <source>`** - disable one source even if its env vars are set, e.g. `/web-tools source-disable brave`.
 - **`/web-tools merged-results <positive-integer>`** - set the default final merged result count. Default: 20. Per-call `max_results` overrides this count.
 
 ## API key resolution (per source)
@@ -129,9 +131,9 @@ First match wins for each source:
 2. `search.sources.<source>.apiKey` field in `~/.pi/agent/extensions/rpiv-web-tools/config.json`
 3. Legacy `apiKey` field (Brave only — auto-migrated to `search.sources.brave.apiKey`)
 
-For `web_search`, every configured source is queried concurrently. If no source is configured, search asks the user to run `/web-tools` instead of assuming a default source. Each source request uses `search.sources.<source>.resultLimit` when set, otherwise `search.defaultResults` (default 10). Final results are round-robin merged and limited by per-call `max_results` or `search.mergedResults` (default 20).
+For `web_search`, every configured and enabled source is queried concurrently. Set `search.sources.<source>.enabled` to `false` (or run `/web-tools source-disable <source>`) to skip a source even when its env vars are set. Set it to `true` (or run `/web-tools source-enable <source>`) to explicitly enable a source; providers that require API keys still need a key. If no source is enabled/configured, search asks the user to run `/web-tools` instead of assuming a default source. Each source request uses `search.sources.<source>.resultLimit` when set, otherwise `search.defaultResults` (default 10). Final results are round-robin merged and limited by per-call `max_results` or `search.mergedResults` (default 20).
 
-For `web_fetch`, URL interceptors run first, configured fetch-capable sources may provide vendor extraction, and generic HTML fetch is used as the fallback.
+For `web_fetch`, URL interceptors run first, enabled/configured fetch-capable sources may provide vendor extraction, and generic HTML fetch is used as the fallback.
 
 ## OneSearch Relay (self-hosted)
 
@@ -274,7 +276,8 @@ Override the `promptSnippet` / `promptGuidelines` the model sees for each tool b
     "defaultResults": 10,
     "mergedResults": 20,
     "sources": {
-      "exa": { "apiKey": "sk-...", "resultLimit": 15 },
+      "exa": { "enabled": false, "apiKey": "sk-...", "resultLimit": 15 },
+      "onesearch": { "enabled": true, "baseUrl": "http://localhost:18080", "resultLimit": 50 },
       "brave": { "apiKey": "sk-..." }
     }
   },
