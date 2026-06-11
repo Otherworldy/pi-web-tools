@@ -41,9 +41,10 @@ export {
 	registerWebSearchTool,
 } from "./web-tools.js";
 
-// Programmatic consumer-side opt-in for URL interceptors. Tier 2 in the
-// resolution model: end-user config (Tier 1) still wins. Default OFF —
-// existing rpiv-web-tools users see zero behavior change.
+// Programmatic consumer-side override for URL interceptors. Tier 2 in the
+// resolution model: end-user config (Tier 1) still wins. GitHub is enabled
+// by default; pass { interceptors: { github: false } } to disable it for a
+// consumer when user config is absent.
 export interface RegisterOptions {
 	interceptors?: {
 		github?: boolean;

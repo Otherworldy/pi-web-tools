@@ -98,6 +98,7 @@ export const DEFAULT_WEB_FETCH_SNIPPET = "Fetch and read content from a specific
 export const DEFAULT_WEB_FETCH_GUIDELINES: string[] = [
 	"Use web_fetch to read the full content of a specific URL — documentation pages, blog posts, API references found via web_search.",
 	"web_fetch is complementary to web_search: search finds URLs, fetch reads them.",
+	"For GitHub repository URLs above the clone size threshold, pass forceClone: true only after the user confirms they want a full clone.",
 	'After answering using fetched content, include a "Sources:" section with a markdown hyperlink to the fetched URL.',
 	"Large responses are truncated and spilled to a temp file — the temp path is reported in the result details.",
 ];
@@ -353,6 +354,12 @@ interface FetchDetails {
 	contentLength?: number;
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
+}
+
+interface WebFetchParams {
+	url: string;
+	raw?: boolean;
+	forceClone?: boolean;
 }
 
 async function spillFullContentToTempFile(content: string): Promise<string> {
@@ -622,12 +629,18 @@ export function registerWebFetchTool(pi: ExtensionAPI): void {
 					description: "If true, return the raw HTML instead of extracted text. Default: false.",
 					default: false,
 				},
+				forceClone: {
+					type: "boolean",
+					description:
+						"For GitHub repository URLs only: force cloning even when the repo exceeds maxRepoSizeMB. Default: false.",
+					default: false,
+				},
 			},
 			required: ["url"],
 		},
 
 		async execute(_toolCallId, params, signal, onUpdate, _ctx) {
-			const { url, raw = false } = params;
+			const { url, raw = false, forceClone = false } = params as WebFetchParams;
 			parseAndAssertHttpUrl(url);
 
 			onUpdate?.({
@@ -639,7 +652,7 @@ export function registerWebFetchTool(pi: ExtensionAPI): void {
 			const fetchProviders = instantiateFetchProviders(config);
 
 			// Three-way capability dispatch:
-			//   1. URL interceptors (currently just GitHub) — opt-in URL specialists
+			//   1. URL interceptors (currently just GitHub) — URL specialists
 			//      that handle their own host pattern. Cheap-reject to null for
 			//      unrelated URLs; empty chain (interceptor disabled) is a no-op.
 			//   2. Configured fetch-capable sources (Tavily, Exa, Jina, Firecrawl,
@@ -647,7 +660,7 @@ export function registerWebFetchTool(pi: ExtensionAPI): void {
 			//   3. Generic HTML fallback — no search source selection required.
 			let fetchResponse: FetchResponse | undefined;
 			for (const interceptor of getInterceptors()) {
-				const r = await interceptor.intercept(url, { raw, signal });
+				const r = await interceptor.intercept(url, { raw, signal, forceClone });
 				if (r) {
 					fetchResponse = r;
 					break;
@@ -689,8 +702,9 @@ export function registerWebFetchTool(pi: ExtensionAPI): void {
 		},
 
 		renderCall(args, theme, _context) {
+			const { url } = args as WebFetchParams;
 			let text = theme.fg("toolTitle", theme.bold("WebFetch "));
-			text += theme.fg("accent", args.url);
+			text += theme.fg("accent", url);
 			return new Text(text, 0, 0);
 		},
 
@@ -771,12 +785,12 @@ function formatShowConfigMessage(current: WebToolsConfig): string {
 		const opts = githubInterceptor.resolvedOptions;
 		const token = process.env[GITHUB_TOKEN_ENV_VAR]?.trim();
 		lines.push(
-			`  github: enabled (${GITHUB_TOKEN_ENV_VAR}: ${maskApiKey(token)}, maxRepoSizeMB: ${opts.maxRepoSizeMB}, clonePath: ${opts.clonePath})`,
+			`  github: enabled (${GITHUB_TOKEN_ENV_VAR}: ${maskApiKey(token)}, maxRepoSizeMB: ${opts.maxRepoSizeMB}, clonePath: ${opts.clonePath}, cloneTtlHours: ${opts.cloneTtlHours})`,
 		);
 	} else {
 		lines.push("  github: disabled");
-		lines.push('  ↳ enable:  add  "interceptors": { "github": true }   to config.json');
-		lines.push('  ↳ disable: set  "interceptors": { "github": false }  to override a consumer-enabled default');
+		lines.push('  ↳ restore default: remove "interceptors.github" or set it to true');
+		lines.push('  ↳ disable:        set "interceptors": { "github": false } in config.json');
 	}
 
 	return lines.join("\n");

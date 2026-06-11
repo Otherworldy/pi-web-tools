@@ -32,7 +32,7 @@ Configure one or more search sources. `web_search` uses all configured search so
 ## Features
 
 - **Read any URL** - fetch http/https pages with HTML-to-text extraction, or get the raw response with `raw: true` (honoured by Brave/Serper/Perplexity/SearXNG; extraction providers — Tavily/Exa/You.com/Jina/Firecrawl/Ollama — always return their parsed text).
-- **GitHub URL interceptor (opt-in)** - github.com URLs route through `gh`/`git` for full repository content (file tree, README, individual file contents) instead of the rendered HTML page. Off by default; enable per-user via config or per-consumer at registration time. See [§GitHub URL interceptor](#github-url-interceptor).
+- **GitHub URL interceptor** - github.com URLs route through `gh`/`git` for full repository content (file tree, README, individual file contents) instead of the rendered HTML page. Enabled by default; disable with `"interceptors": { "github": false }` when needed. See [§GitHub URL interceptor](#github-url-interceptor).
 - **Large-page spillover** - oversized responses truncate inline and spill the full body to a temp file the model can read on demand.
 - **SSRF guard** - refuses loopback, RFC 1918, link-local, and cloud-metadata addresses (`localhost`, `127.0.0.0/8`, `10.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.168.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`).
 - **Interactive setup** - `/web-tools` lists search sources (configured ones marked) and writes to `~/.pi/agent/extensions/rpiv-web-tools/config.json` (chmod 0600); source env vars also work and take precedence over persisted keys. Configure multiple sources to enable multi-source search.
@@ -49,7 +49,7 @@ Then restart your Pi session.
 
 - **`web_search`** - query all configured search sources concurrently, merge titled snippets, and de-duplicate results by URL.
   Each source uses `search.defaultResults` as its default request count (10), sources can override with `search.sources.<source>.resultLimit`, and the final merged result count defaults to `search.mergedResults` (20) or per-call `max_results`. No built-in maximum is imposed.
-- **`web_fetch`** - read an http/https URL. Lookup order: opt-in URL interceptors
+- **`web_fetch`** - read an http/https URL. Lookup order: URL interceptors
   (see [§GitHub URL interceptor](#github-url-interceptor)), configured fetch-capable sources
   (Tavily/Exa/You.com/Jina/Firecrawl/Ollama), then generic raw HTTP + HTML-to-text fallback. Large responses truncate
   inline and spill the full body to a temp file the model can read on demand.
@@ -90,6 +90,7 @@ Throws when no configured search source succeeds. If one source fails but anothe
 web_fetch({
   url: string,                      // http or https only
   raw?: boolean,                    // true → return raw HTML; default false → strip to text
+  forceClone?: boolean,             // GitHub only: clone even above maxRepoSizeMB; default false
 })
 ```
 
@@ -203,21 +204,21 @@ The provider automatically uses the correct API paths:
 
 ## GitHub URL interceptor
 
-Routes github.com URLs through `gh` / `git` to return repository content (file tree, README, file content) instead of the rendered HTML. **Off by default.** Opt in two ways:
+Routes github.com URLs through `gh` / `git` to return repository content (file tree, README, file content) instead of the rendered HTML. **Enabled by default.** Disable it per user when needed:
 
 ```json
-// ~/.pi/agent/extensions/rpiv-web-tools/config.json — end-user opt-in
-{ "interceptors": { "github": true } }
+// ~/.pi/agent/extensions/rpiv-web-tools/config.json — end-user disable
+{ "interceptors": { "github": false } }
 ```
 
 ```ts
-// or per-consumer at registration time (user config still wins)
-registerWebTools(pi, { interceptors: { github: true } });
+// or per-consumer at registration time when user config is absent
+registerWebTools(pi, { interceptors: { github: false } });
 ```
 
-When enabled, github.com URLs are parsed into `owner/repo/ref/path`; non-code paths (`/issues`, `/pulls`, `/discussions`, `/releases`, …) fall through to normal `web_fetch` handling. The interceptor probes for `gh`, falls back to plain `git clone` (with a stderr hint to install `gh`), and uses the `gh api` JSON view for SHA-pinned URLs and repos above `maxRepoSizeMB`. Shallow clones (`--depth 1 --single-branch`) land in `clonePath`; successful clones cache by `owner/repo@ref` for the session. Auth flows through `gh`'s normal `GH_TOKEN`/`GITHUB_TOKEN` precedence — export `GITHUB_TOKEN` to reach private repos.
+When enabled, github.com URLs are parsed into `owner/repo/ref/path`; non-code paths (`/issues`, `/pulls`, `/discussions`, `/releases`, …) fall through to normal `web_fetch` handling. The interceptor probes for `gh`, falls back to plain `git clone` (with a stderr hint to install `gh`), and uses the `gh api` JSON view for SHA-pinned URLs and repos above `maxRepoSizeMB`. To override that size guard after user confirmation, call `web_fetch` again with `forceClone: true`. Shallow clones (`--depth 1 --single-branch`) land in `clonePath`; successful clones cache by `owner/repo@ref` for the session. Auth flows through `gh`'s normal `GH_TOKEN`/`GITHUB_TOKEN` precedence — export `GITHUB_TOKEN` to reach private repos.
 
-Replace the boolean shorthand with an object to tune the defaults; object form implies opt-in.
+Replace the boolean shorthand with an object to tune the defaults; object form keeps the interceptor enabled unless `enabled` is set to `false`.
 
 ```json
 {
@@ -225,7 +226,8 @@ Replace the boolean shorthand with an object to tune the defaults; object form i
     "github": {
       "maxRepoSizeMB": 1000,
       "cloneTimeoutSeconds": 90,
-      "clonePath": "/Users/me/.cache/pi-github-repos"
+      "clonePath": "/Users/me/.cache/pi-github-repos",
+      "cloneTtlHours": 24
     }
   }
 }
@@ -233,12 +235,13 @@ Replace the boolean shorthand with an object to tune the defaults; object form i
 
 | Field | Default | Purpose |
 |---|---|---|
-| `enabled` | `false` (top-level) / `true` (inside object form) | Master switch |
+| `enabled` | `true` | Master switch |
 | `maxRepoSizeMB` | `350` | Repos above this threshold skip the clone and use the API view |
 | `cloneTimeoutSeconds` | `30` | Kill the clone process after this many seconds |
 | `clonePath` | `$TMPDIR/pi-github-repos` | Where shallow clones land; one subdir per `owner/repo@ref` |
+| `cloneTtlHours` | `24` | Startup cleanup removes clone directories older than this many hours |
 
-`/web-tools show` reports the current state at the bottom of its output (resolved token masked, `clonePath`, `maxRepoSizeMB`). The SSRF guard still runs first — a URL with a private/loopback host can't bypass it via a github.com path shape.
+`/web-tools show` reports the current state at the bottom of its output (resolved token masked, `clonePath`, `maxRepoSizeMB`, `cloneTtlHours`). The SSRF guard still runs first — a URL with a private/loopback host can't bypass it via a github.com path shape.
 
 ## Executor guidance overrides
 
@@ -274,7 +277,7 @@ Override the `promptSnippet` / `promptGuidelines` the model sees for each tool b
 
 Each field is independent: omit one and the built-in default is kept. Invalid values (empty string, wrong type, empty array) silently fall back to defaults. Changes take effect on the next Pi session start.
 
-The `interceptors` key is the GitHub URL interceptor opt-in — see [§GitHub URL interceptor](#github-url-interceptor) for the full schema (boolean shorthand or per-field overrides).
+The `interceptors` key configures the GitHub URL interceptor — see [§GitHub URL interceptor](#github-url-interceptor) for the full schema (boolean shorthand or per-field overrides).
 
 ## Security note: `web_fetch` host guard
 

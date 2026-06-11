@@ -8,5 +8,5 @@ import type { FetchResponse } from "../types.js";
 // unrelated URLs don't pay for chain registration.
 export interface UrlInterceptor {
 	readonly name: string;
-	intercept(url: string, opts: { raw: boolean; signal?: AbortSignal }): Promise<FetchResponse | null>;
+	intercept(url: string, opts: { raw: boolean; signal?: AbortSignal; forceClone?: boolean }): Promise<FetchResponse | null>;
 }

@@ -7,6 +7,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- GitHub URL interceptor is now enabled by default; users can disable it with `"interceptors": { "github": false }`.
+- `web_fetch` exposes `forceClone` for confirmed full clones of GitHub repositories above `maxRepoSizeMB`.
+- GitHub clones under `clonePath` are cleaned up on startup after `cloneTtlHours` (default: `24`).
+
 ## [1.18.2] - 2026-06-04
 
 ## [1.18.1] - 2026-06-04

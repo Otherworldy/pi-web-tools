@@ -50,6 +50,7 @@ export interface GitHubInterceptorOptionsConfig {
 	maxRepoSizeMB?: number;
 	cloneTimeoutSeconds?: number;
 	clonePath?: string;
+	cloneTtlHours?: number;
 	[key: string]: unknown;
 }
 
@@ -160,6 +161,7 @@ function isGitHubInterceptorOptions(value: unknown): boolean {
 		return false;
 	}
 	if ("clonePath" in value && value.clonePath !== undefined && typeof value.clonePath !== "string") return false;
+	if ("cloneTtlHours" in value && value.cloneTtlHours !== undefined && typeof value.cloneTtlHours !== "number") return false;
 	return true;
 }
 

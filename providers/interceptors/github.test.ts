@@ -13,7 +13,7 @@
  * execFile is mocked so no real network or gh CLI calls occur.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -58,7 +58,13 @@ const { parseGitHubUrl, resolveGitHubOptions, GitHubInterceptor, GITHUB_TOKEN_EN
 // Default factory: returns a fresh enabled interceptor with default thresholds.
 // Tests construct their own seeded cache when they need to inject clone results.
 function make(
-	opts: { enabled?: boolean; maxRepoSizeMB?: number; cloneTimeoutSeconds?: number; clonePath?: string } = {},
+	opts: {
+		enabled?: boolean;
+		maxRepoSizeMB?: number;
+		cloneTimeoutSeconds?: number;
+		clonePath?: string;
+		cloneTtlHours?: number;
+	} = {},
 ): InstanceType<typeof GitHubInterceptor> {
 	return new GitHubInterceptor({ enabled: true, ...opts });
 }
@@ -158,11 +164,11 @@ describe("parseGitHubUrl", () => {
 });
 
 // ---------------------------------------------------------------------------
-// resolveGitHubOptions — opt-in resolution matrix
+// resolveGitHubOptions — default-on resolution matrix
 // ---------------------------------------------------------------------------
 
 describe("resolveGitHubOptions", () => {
-	it("absent user config + no consumer default → disabled", () => {
+	it("absent user config + no consumer default → enabled", () => {
 		expect(resolveGitHubOptions(undefined, undefined)).toEqual(DEFAULTS);
 	});
 
@@ -171,7 +177,7 @@ describe("resolveGitHubOptions", () => {
 	});
 
 	it("absent user config + consumer:false → disabled", () => {
-		expect(resolveGitHubOptions(undefined, false)).toEqual(DEFAULTS);
+		expect(resolveGitHubOptions(undefined, false)).toEqual({ ...DEFAULTS, enabled: false });
 	});
 
 	it("user:false beats consumer:true → disabled (explicit user override wins)", () => {
@@ -182,7 +188,7 @@ describe("resolveGitHubOptions", () => {
 		expect(resolveGitHubOptions(true, false)).toEqual({ ...DEFAULTS, enabled: true });
 	});
 
-	it("user object form implies opt-in regardless of consumer default", () => {
+	it("user object form stays enabled regardless of consumer default", () => {
 		const r = resolveGitHubOptions({ maxRepoSizeMB: 1000 }, false);
 		expect(r.enabled).toBe(true);
 		expect(r.maxRepoSizeMB).toBe(1000);
@@ -197,8 +203,19 @@ describe("resolveGitHubOptions", () => {
 	});
 
 	it("user object overrides every default field", () => {
-		const r = resolveGitHubOptions({ maxRepoSizeMB: 1, cloneTimeoutSeconds: 2, clonePath: "/x" }, undefined);
-		expect(r).toEqual({ enabled: true, maxRepoSizeMB: 1, cloneTimeoutSeconds: 2, clonePath: "/x" });
+		const r = resolveGitHubOptions(
+			{ maxRepoSizeMB: 1, cloneTimeoutSeconds: 2, clonePath: "/x", cloneTtlHours: 3 },
+			undefined,
+		);
+		expect(r).toEqual({ enabled: true, maxRepoSizeMB: 1, cloneTimeoutSeconds: 2, clonePath: "/x", cloneTtlHours: 3 });
+	});
+
+	it("normalizes invalid object override fields back to defaults", () => {
+		const r = resolveGitHubOptions(
+			{ maxRepoSizeMB: -1, cloneTimeoutSeconds: Number.NaN, clonePath: "   ", cloneTtlHours: 0 },
+			undefined,
+		);
+		expect(r).toEqual({ ...DEFAULTS, enabled: true });
 	});
 });
 
@@ -290,6 +307,56 @@ describe("reset()", () => {
 		makeGhAvailableApisFail();
 		await i.intercept("https://github.com/owner/repo/issues", { raw: false });
 		// No assertion on return value — verifying no throw and that the re-probe path is hit.
+	});
+});
+
+// ---------------------------------------------------------------------------
+// startup cleanup — removes stale clone directories but keeps current-session paths
+// ---------------------------------------------------------------------------
+
+describe("startup clone cleanup", () => {
+	let cloneRoot: string;
+
+	beforeEach(() => {
+		cloneRoot = mkdtempSync(join(tmpdir(), "rpiv-gh-cleanup-"));
+	});
+
+	afterEach(() => {
+		rmSync(cloneRoot, { recursive: true, force: true });
+	});
+
+	it("removes stale repo clone directories and leaves fresh ones", () => {
+		const staleRepo = join(cloneRoot, "old-owner", "old-repo");
+		const freshRepo = join(cloneRoot, "new-owner", "new-repo");
+		mkdirSync(staleRepo, { recursive: true });
+		mkdirSync(freshRepo, { recursive: true });
+		writeFileSync(join(staleRepo, "README.md"), "old");
+		writeFileSync(join(freshRepo, "README.md"), "new");
+
+		const oldTime = new Date(Date.now() - 2 * 60 * 60 * 1000);
+		utimesSync(staleRepo, oldTime, oldTime);
+
+		make({ clonePath: cloneRoot, cloneTtlHours: 1 });
+
+		expect(() => statSync(staleRepo)).toThrow();
+		expect(statSync(freshRepo).isDirectory()).toBe(true);
+	});
+
+	it("does not remove active clone cache paths even when they are stale", () => {
+		const activeRepo = join(cloneRoot, "owner", "repo");
+		mkdirSync(activeRepo, { recursive: true });
+		writeFileSync(join(activeRepo, "README.md"), "active");
+		const oldTime = new Date(Date.now() - 2 * 60 * 60 * 1000);
+		utimesSync(activeRepo, oldTime, oldTime);
+
+		new GitHubInterceptor({
+			enabled: true,
+			clonePath: cloneRoot,
+			cloneTtlHours: 1,
+			cloneCache: new Map([["owner/repo", { localPath: activeRepo, clonePromise: Promise.resolve(activeRepo) }]]),
+		});
+
+		expect(statSync(activeRepo).isDirectory()).toBe(true);
 	});
 });
 
@@ -624,6 +691,7 @@ describe("fetchViaApi paths (gh mocked to return API responses)", () => {
 		expect(r).not.toBeNull();
 		expect(r!.text).toContain("Repository is");
 		expect(r!.text).toContain("threshold");
+		expect(r!.text).toContain("forceClone: true");
 	});
 
 	it("uses provided ref instead of fetching default branch (blob with explicit ref)", async () => {

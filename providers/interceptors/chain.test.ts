@@ -1,6 +1,6 @@
 /**
  * Tests the interceptor chain dispatch in registerWebTools: first-match-wins,
- * empty-chain fall-through, and the consumer×user-config opt-in resolution.
+ * empty-chain fall-through, and the consumer×user-config default-on resolution.
  * Exercises the chain end-to-end via the registered web_fetch tool rather
  * than the GitHubInterceptor class directly.
  */
@@ -25,8 +25,8 @@ beforeEach(() => {
 	rmSync(CONFIG_PATH, { force: true });
 });
 
-describe("interceptor chain — opt-in resolution", () => {
-	it("default OFF: github URL hits generic fetch fallback when neither user nor consumer opts in", async () => {
+describe("interceptor chain — default-on resolution", () => {
+	it("default ON: non-code github URL still falls through to generic fetch", async () => {
 		process.env.BRAVE_SEARCH_API_KEY = "k";
 		writeConfig({ search: { sources: { brave: {} } } });
 		stubFetch([
@@ -45,7 +45,7 @@ describe("interceptor chain — opt-in resolution", () => {
 			.get("web_fetch")
 			?.execute?.(
 				"tc",
-				{ url: "https://github.com/owner/repo" },
+				{ url: "https://github.com/owner/repo/issues" },
 				undefined as never,
 				undefined as never,
 				createMockCtx(),
@@ -53,10 +53,7 @@ describe("interceptor chain — opt-in resolution", () => {
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("plain page") });
 	});
 
-	it("consumer:true enables the interceptor when user config is absent", async () => {
-		// The interceptor is built; for github.com/owner/repo without gh available
-		// the interceptor returns null (clone+API both fail) and we fall through
-		// to generic fetch fallback. We assert the chain didn't short-circuit the fall-through.
+	it("consumer:false disables the interceptor when user config is absent", async () => {
 		process.env.BRAVE_SEARCH_API_KEY = "k";
 		writeConfig({ search: { sources: { brave: {} } } });
 		stubFetch([
@@ -70,13 +67,12 @@ describe("interceptor chain — opt-in resolution", () => {
 			},
 		]);
 		const { pi, captured } = createMockPi();
-		registerWebTools(pi, { interceptors: { github: true } });
-		// owner/repo/issues → parseGitHubUrl returns null → intercept null → generic fetch runs.
+		registerWebTools(pi, { interceptors: { github: false } });
 		const r = await captured.tools
 			.get("web_fetch")
 			?.execute?.(
 				"tc",
-				{ url: "https://github.com/owner/repo/issues" },
+				{ url: "https://github.com/owner/repo/blob/main/file.ts" },
 				undefined as never,
 				undefined as never,
 				createMockCtx(),
@@ -112,13 +108,7 @@ describe("interceptor chain — opt-in resolution", () => {
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("generic only") });
 	});
 
-	it("user object form implies opt-in even when consumer left it unset", async () => {
-		// With the interceptor active and gh CLI absent in test env, the interceptor
-		// tries clone+API, both fail, and intercept() returns null. The chain falls
-		// through to generic fetch — i.e. the interceptor *ran* (rather than being
-		// skipped entirely as it would be when disabled). We verify this indirectly
-		// via no generic fetch fallback happening when intercept actually succeeds in tests
-		// that use real network mocks; here we just confirm registration accepts it.
+	it("user object form keeps the interceptor enabled even when consumer disables it", async () => {
 		process.env.BRAVE_SEARCH_API_KEY = "k";
 		writeConfig({ search: { sources: { brave: {} } }, interceptors: { github: { maxRepoSizeMB: 999 } } });
 		stubFetch([
@@ -132,7 +122,7 @@ describe("interceptor chain — opt-in resolution", () => {
 			},
 		]);
 		const { pi, captured } = createMockPi();
-		registerWebTools(pi);
+		registerWebTools(pi, { interceptors: { github: false } });
 		const r = await captured.tools
 			.get("web_fetch")
 			?.execute?.(
@@ -178,7 +168,7 @@ describe("interceptor chain — fall-through semantics", () => {
 
 	it("empty chain (interceptor disabled) is a no-op — every URL hits generic fetch", async () => {
 		process.env.BRAVE_SEARCH_API_KEY = "k";
-		writeConfig({ search: { sources: { brave: {} } } });
+		writeConfig({ search: { sources: { brave: {} } }, interceptors: { github: false } });
 		stubFetch([
 			{
 				match: () => true,

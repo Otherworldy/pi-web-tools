@@ -7,6 +7,7 @@ import { configPath } from "./providers/config.js";
 import {
 	clearCloneCache,
 	configureSearxng,
+	GitHubInterceptor,
 	OLLAMA_DEFAULT_URL,
 	SEARXNG_DEFAULT_URL,
 	SEARXNG_PROVIDER_META,
@@ -54,6 +55,15 @@ describe("registerWebTools — registration", () => {
 	it("registers /web-tools command", () => {
 		const { captured } = registerAndCapture();
 		expect(captured.commands.has("web-tools")).toBe(true);
+	});
+
+	it("web_fetch schema exposes forceClone for GitHub clone overrides", () => {
+		const { captured } = registerAndCapture();
+		const params = captured.tools.get("web_fetch")?.parameters as unknown as {
+			properties: { forceClone: { type: string; default: boolean; description: string } };
+		};
+		expect(params.properties.forceClone).toMatchObject({ type: "boolean", default: false });
+		expect(params.properties.forceClone.description).toContain("GitHub");
 	});
 
 	it("web_search schema declares merged-result minimum without a default or maximum", () => {
@@ -2441,36 +2451,32 @@ describe("web_search.execute — youcom", () => {
 });
 
 describe("web_fetch.execute — github intercept", () => {
-	it("default OFF: github.com URLs go straight to configured source (no interceptor registered)", async () => {
-		// No consumer opt-in, no user config — chain is empty. github.com URL
-		// is fetched by the configured source just like any other URL.
-		process.env.BRAVE_SEARCH_API_KEY = "k";
-		writeConfig({ search: { sources: { brave: {} } } });
-		stubFetch([
-			{
-				match: () => true,
-				response: () =>
-					new Response("<html><body>plain github page</body></html>", {
-						status: 200,
-						headers: { "content-type": "text/html" },
-					}),
-			},
-		]);
-		const { pi, captured } = createMockPi();
-		registerWebTools(pi); // no opts → interceptor stays off
-		const r = await captured.tools
-			.get("web_fetch")
-			?.execute?.(
-				"tc",
-				{ url: "https://github.com/owner/repo/blob/main/file.ts" },
-				undefined as never,
-				undefined as never,
-				createMockCtx(),
+	it("default ON: github.com code URLs hit the GitHub interceptor", async () => {
+		const interceptSpy = vi
+			.spyOn(GitHubInterceptor.prototype, "intercept")
+			.mockResolvedValue({ text: "cloned by default", title: "owner/repo", contentType: "text/plain" });
+		try {
+			const { captured } = registerAndCapture();
+			const r = await captured.tools
+				.get("web_fetch")
+				?.execute?.(
+					"tc",
+					{ url: "https://github.com/owner/repo/blob/main/file.ts" },
+					undefined as never,
+					undefined as never,
+					createMockCtx(),
+				);
+			expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("cloned by default") });
+			expect(interceptSpy).toHaveBeenCalledWith(
+				"https://github.com/owner/repo/blob/main/file.ts",
+				expect.objectContaining({ raw: false, forceClone: false }),
 			);
-		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("plain github page") });
+		} finally {
+			interceptSpy.mockRestore();
+		}
 	});
 
-	it("user config wins: { interceptors: { github: false } } overrides consumer opt-in", async () => {
+	it("user config wins: { interceptors: { github: false } } overrides consumer default", async () => {
 		process.env.BRAVE_SEARCH_API_KEY = "k";
 		writeConfig({ search: { sources: { brave: {} } }, interceptors: { github: false } });
 		stubFetch([
@@ -2495,6 +2501,32 @@ describe("web_fetch.execute — github intercept", () => {
 				createMockCtx(),
 			);
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("plain github page") });
+	});
+
+	it("passes forceClone through to the GitHub interceptor", async () => {
+		writeConfig({ interceptors: { github: true } });
+		const interceptSpy = vi
+			.spyOn(GitHubInterceptor.prototype, "intercept")
+			.mockResolvedValue({ text: "cloned", title: "owner/repo", contentType: "text/plain" });
+		try {
+			const { captured } = registerAndCapture();
+			const r = await captured.tools
+				.get("web_fetch")
+				?.execute?.(
+					"tc",
+					{ url: "https://github.com/owner/repo", forceClone: true },
+					undefined as never,
+					undefined as never,
+					createMockCtx(),
+				);
+			expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("cloned") });
+			expect(interceptSpy).toHaveBeenCalledWith(
+				"https://github.com/owner/repo",
+				expect.objectContaining({ raw: false, forceClone: true }),
+			);
+		} finally {
+			interceptSpy.mockRestore();
+		}
 	});
 
 	it("falls back to generic fetch when parseGitHubUrl returns null (non-code github URL)", async () => {
@@ -2568,19 +2600,20 @@ describe("web_fetch.execute — github intercept", () => {
 });
 
 describe("formatShowConfigMessage — URL interceptors block", () => {
-	it("show lists 'github: disabled' with how-to-enable hint when interceptor is off", async () => {
+	it("show lists 'github: disabled' with restore-default hint when explicitly off", async () => {
+		writeConfig({ interceptors: { github: false } });
 		const { captured } = registerAndCapture();
 		const ctx = createMockCtx({ hasUI: true });
 		await captured.commands.get("web-tools")?.handler("show", ctx as never);
 		const msg = (ctx.ui.notify as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(msg).toContain("URL interceptors:");
 		expect(msg).toContain("github: disabled");
-		expect(msg).toMatch(/enable.*interceptors.*github.*true/);
+		expect(msg).toContain("restore default");
+		expect(msg).toContain('"github": false');
 	});
 
-	it("show lists 'github: enabled' with token + clonePath when opted in", async () => {
+	it("show lists 'github: enabled' with token + clonePath by default", async () => {
 		process.env.GITHUB_TOKEN = "ghp_abcdefgh1234";
-		writeConfig({ interceptors: { github: true } });
 		const { captured } = registerAndCapture();
 		const ctx = createMockCtx({ hasUI: true });
 		await captured.commands.get("web-tools")?.handler("show", ctx as never);
@@ -2589,5 +2622,6 @@ describe("formatShowConfigMessage — URL interceptors block", () => {
 		expect(msg).toContain("github: enabled");
 		expect(msg).toContain("GITHUB_TOKEN: ghp_");
 		expect(msg).toContain("clonePath:");
+		expect(msg).toContain("cloneTtlHours: 24");
 	});
 });

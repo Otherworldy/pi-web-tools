@@ -5,6 +5,7 @@ import {
 	openSync,
 	readdirSync,
 	readFileSync,
+	lstatSync,
 	readSync,
 	realpathSync,
 	rmSync,
@@ -197,7 +198,7 @@ export function parseGitHubUrl(url: string): GitHubUrlInfo | null {
 }
 
 // ---------------------------------------------------------------------------
-// Resolved options + opt-in resolution
+// Resolved options + default-on resolution
 // ---------------------------------------------------------------------------
 
 export interface GitHubInterceptorOptions {
@@ -205,6 +206,7 @@ export interface GitHubInterceptorOptions {
 	maxRepoSizeMB?: number;
 	cloneTimeoutSeconds?: number;
 	clonePath?: string;
+	cloneTtlHours?: number;
 }
 
 export interface ResolvedGitHubOptions {
@@ -212,20 +214,37 @@ export interface ResolvedGitHubOptions {
 	maxRepoSizeMB: number;
 	cloneTimeoutSeconds: number;
 	clonePath: string;
+	cloneTtlHours: number;
 }
 
 export const DEFAULTS: ResolvedGitHubOptions = {
-	enabled: false,
+	enabled: true,
 	maxRepoSizeMB: 350,
 	cloneTimeoutSeconds: 30,
 	clonePath: join(tmpdir(), "pi-github-repos"),
+	cloneTtlHours: 24,
 };
 
-// Two-tier opt-in: user config (~/.config/rpiv-web-tools/config.json under
+function normalizeEnabled(value: unknown, fallback: boolean): boolean {
+	return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizePositiveNumber(value: unknown, fallback: number): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+	return value > 0 ? value : fallback;
+}
+
+function normalizeClonePath(value: unknown, fallback: string): string {
+	if (typeof value !== "string") return fallback;
+	const normalized = value.trim();
+	return normalized.length > 0 ? normalized : fallback;
+}
+
+// Two-tier resolution: user config (~/.config/rpiv-web-tools/config.json under
 // `interceptors.github`) wins over the consumer programmatic default passed
-// to registerWebTools. Object form implies opt-in; `enabled: false` inside
-// an object is redundant but accepted. Boolean `false` at any tier turns
-// the interceptor off regardless of any object overrides at lower tiers.
+// to registerWebTools. GitHub is enabled by default; boolean `false` in user
+// config explicitly turns it off. Object form implies enabled unless it sets
+// `enabled: false`.
 export function resolveGitHubOptions(
 	userConfig: boolean | GitHubInterceptorOptions | undefined,
 	consumerDefault: boolean | undefined,
@@ -233,14 +252,15 @@ export function resolveGitHubOptions(
 	if (userConfig === false) return { ...DEFAULTS, enabled: false };
 	if (userConfig === true) return { ...DEFAULTS, enabled: true };
 	if (userConfig && typeof userConfig === "object") {
-		const enabled = userConfig.enabled ?? true;
 		return {
-			enabled,
-			maxRepoSizeMB: userConfig.maxRepoSizeMB ?? DEFAULTS.maxRepoSizeMB,
-			cloneTimeoutSeconds: userConfig.cloneTimeoutSeconds ?? DEFAULTS.cloneTimeoutSeconds,
-			clonePath: userConfig.clonePath ?? DEFAULTS.clonePath,
+			enabled: normalizeEnabled(userConfig.enabled, true),
+			maxRepoSizeMB: normalizePositiveNumber(userConfig.maxRepoSizeMB, DEFAULTS.maxRepoSizeMB),
+			cloneTimeoutSeconds: normalizePositiveNumber(userConfig.cloneTimeoutSeconds, DEFAULTS.cloneTimeoutSeconds),
+			clonePath: normalizeClonePath(userConfig.clonePath, DEFAULTS.clonePath),
+			cloneTtlHours: normalizePositiveNumber(userConfig.cloneTtlHours, DEFAULTS.cloneTtlHours),
 		};
 	}
+	if (consumerDefault === false) return { ...DEFAULTS, enabled: false };
 	if (consumerDefault === true) return { ...DEFAULTS, enabled: true };
 	return { ...DEFAULTS };
 }
@@ -272,6 +292,63 @@ function cloneDir(clonePath: string, owner: string, repo: string, ref?: string):
 	return join(clonePath, owner, dirName);
 }
 
+function cleanupStaleClones(clonePath: string, cloneTtlHours: number, activePaths: Iterable<string>): void {
+	const cutoff = Date.now() - cloneTtlHours * 60 * 60 * 1000;
+	const active = new Set(Array.from(activePaths, (entry) => resolvePath(entry)));
+
+	let owners: string[];
+	try {
+		owners = readdirSync(clonePath);
+	} catch {
+		return;
+	}
+
+	for (const owner of owners) {
+		const ownerPath = join(clonePath, owner);
+		let ownerStat: ReturnType<typeof lstatSync>;
+		try {
+			ownerStat = lstatSync(ownerPath);
+		} catch {
+			continue;
+		}
+		if (!ownerStat.isDirectory()) continue;
+
+		let repos: string[];
+		try {
+			repos = readdirSync(ownerPath);
+		} catch {
+			continue;
+		}
+
+		for (const repo of repos) {
+			const repoPath = join(ownerPath, repo);
+			const resolvedRepoPath = resolvePath(repoPath);
+			if (active.has(resolvedRepoPath)) continue;
+
+			let repoStat: ReturnType<typeof lstatSync>;
+			try {
+				repoStat = lstatSync(repoPath);
+			} catch {
+				continue;
+			}
+			if (!repoStat.isDirectory()) continue;
+			if (repoStat.mtimeMs > cutoff) continue;
+
+			try {
+				rmSync(repoPath, { recursive: true, force: true });
+			} catch {
+				// ignore cleanup errors
+			}
+		}
+
+		try {
+			if (readdirSync(ownerPath).length === 0) rmSync(ownerPath, { recursive: true, force: true });
+		} catch {
+			// ignore cleanup errors
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GitHubInterceptor — the only non-test-only consumer of all the state above
 // ---------------------------------------------------------------------------
@@ -288,6 +365,11 @@ export class GitHubInterceptor implements UrlInterceptor {
 		const { cloneCache, ...rest } = opts;
 		this.options = resolveGitHubOptions(rest, undefined);
 		this.cloneCache = cloneCache ?? new Map();
+		cleanupStaleClones(
+			this.options.clonePath,
+			this.options.cloneTtlHours,
+			Array.from(this.cloneCache.values(), (entry) => entry.localPath),
+		);
 	}
 
 	get resolvedOptions(): ResolvedGitHubOptions {
@@ -610,7 +692,7 @@ export class GitHubInterceptor implements UrlInterceptor {
 					const sizeNote =
 						`Note: Repository is ${Math.round(sizeMB)}MB (threshold: ${this.options.maxRepoSizeMB}MB). ` +
 						`Showing API-fetched content instead of full clone. Ask the user if they'd like to clone the full repo — ` +
-						`if yes, call web_fetch again with the same URL.`;
+						`if yes, call web_fetch again with the same URL and forceClone: true.`;
 					const apiView = await this.fetchViaApi(url, owner, repo, info, sizeNote);
 					if (apiView) return apiView;
 					return null;

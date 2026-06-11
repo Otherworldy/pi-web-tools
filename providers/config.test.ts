@@ -118,11 +118,11 @@ describe("readConfig — interceptors.github union", () => {
 	it("accepts the object override form", () => {
 		writeRaw(
 			JSON.stringify({
-				interceptors: { github: { maxRepoSizeMB: 1000, clonePath: "/x" } },
+				interceptors: { github: { maxRepoSizeMB: 1000, clonePath: "/x", cloneTtlHours: 48 } },
 			}),
 		);
 		const gh = readConfig().interceptors?.github;
-		expect(gh).toEqual({ maxRepoSizeMB: 1000, clonePath: "/x" });
+		expect(gh).toEqual({ maxRepoSizeMB: 1000, clonePath: "/x", cloneTtlHours: 48 });
 	});
 
 	it("falls back to {} when interceptors.github has a type-incompatible shape", () => {
