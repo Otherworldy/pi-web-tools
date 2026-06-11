@@ -8,7 +8,7 @@
   </a>
 </div>
 
-Let the model search the web and read pages. `rpiv-web-tools` adds `web_search` and `web_fetch` tools to [Pi Agent](https://github.com/badlogic/pi-mono) with pluggable providers (Brave, Tavily, Serper, Exa, You.com, Jina, Firecrawl, Perplexity, [SearXNG](https://docs.searxng.org/), [Ollama](https://ollama.com)), plus `/web-tools` for interactive search-source setup. `web_search` queries every configured search source concurrently and merges duplicate URLs; `web_fetch` uses URL interceptors, configured fetch-capable sources, then generic HTML fetch.
+Let the model search the web and read pages. `rpiv-web-tools` adds `web_search` and `web_fetch` tools to [Pi Agent](https://github.com/badlogic/pi-mono) with pluggable providers (Brave, Tavily, Serper, Exa, You.com, Jina, Firecrawl, Perplexity, [SearXNG](https://docs.searxng.org/), [Ollama](https://ollama.com), OneSearch Relay), plus `/web-tools` for interactive search-source setup. `web_search` queries every configured search source concurrently and merges duplicate URLs; `web_fetch` uses URL interceptors, configured fetch-capable sources, then generic HTML fetch.
 
 ![Search source configuration prompt](https://raw.githubusercontent.com/juicesharp/rpiv-mono/main/packages/rpiv-web-tools/docs/config.jpg)
 
@@ -28,10 +28,11 @@ Configure one or more search sources. `web_search` uses all configured search so
 | Perplexity | `PERPLEXITY_API_KEY` | [docs.perplexity.ai](https://docs.perplexity.ai/) | raw HTTP → htmlToText, `raw: true` available |
 | SearXNG | `SEARXNG_URL` (+ optional `SEARXNG_API_KEY`) | self-hosted | raw HTTP → htmlToText, `raw: true` available |
 | Ollama | `OLLAMA_HOST` / `OLLAMA_API_KEY` | local or [ollama.com](https://ollama.com) | native extraction |
+| OneSearch | `ONESEARCH_URL` (+ optional `ONESEARCH_API_KEY`) | self-hosted OneSearch Relay | generic raw HTTP fallback |
 
 ## Features
 
-- **Read any URL** - fetch http/https pages with HTML-to-text extraction, or get the raw response with `raw: true` (honoured by Brave/Serper/Perplexity/SearXNG; extraction providers — Tavily/Exa/You.com/Jina/Firecrawl/Ollama — always return their parsed text).
+- **Read any URL** - fetch http/https pages with HTML-to-text extraction, or get the raw response with `raw: true` (honoured by generic HTTP fetch and raw-HTTP providers; extraction providers — Tavily/Exa/You.com/Jina/Firecrawl/Ollama — always return their parsed text).
 - **GitHub URL interceptor** - github.com URLs route through `gh`/`git` for full repository content (file tree, README, individual file contents) instead of the rendered HTML page. Enabled by default; disable with `"interceptors": { "github": false }` when needed. See [§GitHub URL interceptor](#github-url-interceptor).
 - **Large-page spillover** - oversized responses truncate inline and spill the full body to a temp file the model can read on demand.
 - **SSRF guard** - refuses loopback, RFC 1918, link-local, and cloud-metadata addresses (`localhost`, `127.0.0.0/8`, `10.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.168.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`).
@@ -71,7 +72,7 @@ Returns:
   details: {
     query: string,
     backend: string, // comma-separated source names, retained for compatibility
-    backends: Array<"brave" | "tavily" | "serper" | "exa" | "youcom" | "jina" | "firecrawl" | "perplexity" | "searxng" | "ollama">,
+    backends: Array<"brave" | "tavily" | "serper" | "exa" | "youcom" | "jina" | "firecrawl" | "perplexity" | "searxng" | "ollama" | "onesearch">,
     sourceResultLimits: Record<string, number>, // per-source request counts
     sourceResultCounts: Record<string, number>, // raw successful results returned per source
     mergedResultLimit: number,
@@ -124,7 +125,7 @@ Throws on invalid URL, non-http(s) protocol, private/loopback hostnames (SSRF gu
 
 First match wins for each source:
 
-1. The source environment variable: `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `EXA_API_KEY`, `YOUCOM_API_KEY`, `JINA_API_KEY`, `FIRECRAWL_API_KEY`, `PERPLEXITY_API_KEY`, `SEARXNG_API_KEY`, or `OLLAMA_API_KEY`
+1. The source environment variable: `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `EXA_API_KEY`, `YOUCOM_API_KEY`, `JINA_API_KEY`, `FIRECRAWL_API_KEY`, `PERPLEXITY_API_KEY`, `SEARXNG_API_KEY`, `OLLAMA_API_KEY`, or `ONESEARCH_API_KEY`
 2. `search.sources.<source>.apiKey` field in `~/.pi/agent/extensions/rpiv-web-tools/config.json`
 3. Legacy `apiKey` field (Brave only — auto-migrated to `search.sources.brave.apiKey`)
 
@@ -132,9 +133,29 @@ For `web_search`, every configured source is queried concurrently. If no source 
 
 For `web_fetch`, URL interceptors run first, configured fetch-capable sources may provide vendor extraction, and generic HTML fetch is used as the fallback.
 
+## OneSearch Relay (self-hosted)
+
+OneSearch Relay is a self-hosted multi-search aggregation gateway. This provider calls its native `POST /v1/search` endpoint and maps OneSearch results (`title`, `url`, `snippet`/`content`) into `web_search` results. It is search-only in `rpiv-web-tools`; `web_fetch` still uses URL interceptors, configured extraction providers, then generic HTML fetch.
+
+```bash
+export ONESEARCH_URL=http://localhost:5173
+# Optional when OneSearch Relay has API_AUTH_REQUIRED=false; otherwise use an osr_ API token or oak_ admin API key
+export ONESEARCH_API_KEY=...
+```
+
+Resolution order for the URL: `ONESEARCH_URL` env var → `search.sources.onesearch.baseUrl` in `~/.pi/agent/extensions/rpiv-web-tools/config.json` → default `http://localhost:5173`. `/web-tools` prompts for the URL first and the optional token second.
+
+The provider sends:
+
+```json
+{ "query": "...", "limit": 10, "include_raw": false }
+```
+
+to `<ONESEARCH_URL>/v1/search` with `Authorization: Bearer <ONESEARCH_API_KEY>` when a token is configured.
+
 ## SearXNG (self-hosted)
 
-SearXNG is the only provider that talks to an instance you control, so it needs a base URL instead of (or in addition to) an API key.
+SearXNG talks to an instance you control, so it needs a base URL instead of (or in addition to) an API key.
 
 ```bash
 export SEARXNG_URL=http://localhost:8080
@@ -144,7 +165,7 @@ export SEARXNG_API_KEY=…
 
 Resolution order for the URL: `SEARXNG_URL` env var → `search.sources.searxng.baseUrl` in `~/.pi/agent/extensions/rpiv-web-tools/config.json` → default `http://localhost:8080`. `/web-tools` prompts for the URL first and the (optional) API key second.
 
-Your instance must have `json` enabled in `settings.yml` under `search.formats` — default SearXNG installs ship with JSON disabled and will return `403 Forbidden` otherwise (per the [SearXNG search API docs](https://docs.searxng.org/dev/search_api.html)). The provider surfaces that case with an actionable hint. SearXNG's `web_fetch` reuses the same raw-HTTP + HTML-to-text pipeline as Brave/Serper, so URLs returned by `web_search` can be fetched without any extra setup.
+Your instance must have `json` enabled in `settings.yml` under `search.formats` — default SearXNG installs ship with JSON disabled and will return `403 Forbidden` otherwise (per the [SearXNG search API docs](https://docs.searxng.org/dev/search_api.html)). The provider surfaces that case with an actionable hint. SearXNG is search-only in `rpiv-web-tools`, so URLs returned by `web_search` are fetched by the normal `web_fetch` fallback pipeline without any extra setup.
 
 The SSRF guard (which refuses loopback and RFC-1918 addresses) applies to URLs `web_fetch` retrieves on the model's behalf, not to the SearXNG search endpoint itself: a `SEARXNG_URL` pointing at `http://localhost:8080` or another private host is intentionally reachable, since SearXNG is self-hosted by design.
 

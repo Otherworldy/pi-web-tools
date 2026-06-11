@@ -3,6 +3,7 @@ import { ExaProvider } from "./exa.js";
 import { FirecrawlProvider } from "./firecrawl.js";
 import { JinaProvider } from "./jina.js";
 import { OllamaProvider } from "./ollama.js";
+import { OnesearchProvider } from "./onesearch.js";
 import { PerplexityProvider } from "./perplexity.js";
 import { SearxngProvider } from "./searxng.js";
 import { SerperProvider } from "./serper.js";
@@ -15,10 +16,10 @@ export interface ProviderCredentials {
 	baseUrl?: string;
 }
 
-// The return union mirrors the role split: Brave/Serper/SearXNG are search-
-// only (SearchProvider); the other five expose native fetch endpoints too
-// (FullProvider). Consumers narrow with `"fetch" in provider` when they need
-// to dispatch on capability.
+// The return union mirrors the role split: Brave/Serper/Perplexity/SearXNG/
+// OneSearch are search-only (SearchProvider); fetch-capable providers expose
+// native fetch endpoints too (FullProvider). Consumers narrow with `"fetch" in
+// provider` when they need to dispatch on capability.
 export function createSearchProvider(name: string, creds: ProviderCredentials): SearchProvider | FullProvider {
 	const apiKey = creds.apiKey ?? "";
 	switch (name) {
@@ -40,6 +41,8 @@ export function createSearchProvider(name: string, creds: ProviderCredentials): 
 			return new PerplexityProvider(apiKey);
 		case "searxng":
 			return new SearxngProvider({ apiKey: creds.apiKey, baseUrl: creds.baseUrl ?? "" });
+		case "onesearch":
+			return new OnesearchProvider({ apiKey: creds.apiKey, baseUrl: creds.baseUrl ?? "" });
 		case "ollama":
 			return new OllamaProvider({ apiKey: creds.apiKey, baseUrl: creds.baseUrl ?? "" });
 		default:

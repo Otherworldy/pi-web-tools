@@ -35,6 +35,7 @@ export interface SearchSourceConfig {
 	apiKey?: string;
 	baseUrl?: string;
 	resultLimit?: number;
+	defaultResults?: number;
 	[key: string]: unknown;
 }
 
@@ -110,6 +111,7 @@ function isSearchSourceConfig(value: unknown): value is SearchSourceConfig {
 	if ("apiKey" in value && value.apiKey !== undefined && typeof value.apiKey !== "string") return false;
 	if ("baseUrl" in value && value.baseUrl !== undefined && typeof value.baseUrl !== "string") return false;
 	if ("resultLimit" in value && value.resultLimit !== undefined && typeof value.resultLimit !== "number") return false;
+	if ("defaultResults" in value && value.defaultResults !== undefined && typeof value.defaultResults !== "number") return false;
 	return true;
 }
 

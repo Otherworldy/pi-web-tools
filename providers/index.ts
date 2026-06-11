@@ -3,6 +3,7 @@ import { EXA_PROVIDER_META } from "./exa.js";
 import { FIRECRAWL_PROVIDER_META } from "./firecrawl.js";
 import { JINA_PROVIDER_META } from "./jina.js";
 import { OLLAMA_PROVIDER_META } from "./ollama.js";
+import { ONESEARCH_PROVIDER_META } from "./onesearch.js";
 import { PERPLEXITY_PROVIDER_META } from "./perplexity.js";
 import { SEARXNG_PROVIDER_META } from "./searxng.js";
 import { SERPER_PROVIDER_META } from "./serper.js";
@@ -34,6 +35,17 @@ export {
 	OLLAMA_PROVIDER_META,
 	OllamaProvider,
 } from "./ollama.js";
+export {
+	configureOnesearch,
+	ONESEARCH_API_KEY_ENV_VAR,
+	ONESEARCH_DEFAULT_URL,
+	ONESEARCH_PROVIDER_META,
+	ONESEARCH_URL_ENV_VAR,
+	type OnesearchConfigChange,
+	type OnesearchConfigCurrent,
+	type OnesearchConfigUi,
+	OnesearchProvider,
+} from "./onesearch.js";
 export { PERPLEXITY_API_KEY_ENV_VAR, PERPLEXITY_PROVIDER_META, PerplexityProvider } from "./perplexity.js";
 export {
 	configureSearxng,
@@ -78,4 +90,5 @@ export const PROVIDERS: readonly ProviderMeta[] = [
 	PERPLEXITY_PROVIDER_META,
 	SEARXNG_PROVIDER_META,
 	OLLAMA_PROVIDER_META,
+	ONESEARCH_PROVIDER_META,
 ];

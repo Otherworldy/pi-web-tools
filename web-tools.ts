@@ -2,9 +2,10 @@
  * rpiv-web-tools — body
  *
  * Provides `web_search` and `web_fetch` tools backed by configurable search
- * providers (Brave, Tavily, Serper, Exa), plus the `/web-tools`
- * slash command for search source configuration. web_search queries all
- * configured sources concurrently; web_fetch uses URL interceptors plus generic HTML fetch.
+ * providers, plus the `/web-tools` slash command for search source
+ * configuration. web_search queries all configured sources concurrently;
+ * web_fetch uses URL interceptors, configured extraction providers, then
+ * generic HTML fetch.
  *
  * API key resolution precedence per search source (first wins):
  *   1. Source environment variable (e.g. BRAVE_SEARCH_API_KEY, TAVILY_API_KEY)
@@ -166,11 +167,21 @@ function getMergedResultLimit(config: WebToolsConfig): number {
 }
 
 function getSourceResultLimit(config: WebToolsConfig, providerName: string): number {
-	return normalizeResultCount(config.search?.sources?.[providerName]?.resultLimit, getDefaultSourceResultLimit(config));
+	const source = config.search?.sources?.[providerName];
+	return normalizeResultCount(source?.resultLimit ?? source?.defaultResults, getDefaultSourceResultLimit(config));
 }
 
-function resolveMergedResultLimit(requested: number | undefined, config: WebToolsConfig): number {
-	return requested === undefined ? getMergedResultLimit(config) : normalizeResultCount(requested, getMergedResultLimit(config));
+function resolveMergedResultLimit(
+	requested: number | undefined,
+	config: WebToolsConfig,
+	providerNames: string[] = [],
+): number {
+	const configuredMergedResultLimit = getMergedResultLimit(config);
+	if (requested !== undefined) return normalizeResultCount(requested, configuredMergedResultLimit);
+	if (providerNames.length === 1) {
+		return Math.max(configuredMergedResultLimit, getSourceResultLimit(config, providerNames[0]));
+	}
+	return configuredMergedResultLimit;
 }
 
 function buildSourceResultLimits(config: WebToolsConfig, providerNames: string[]): Record<string, number> {
@@ -493,12 +504,12 @@ export function registerWebSearchTool(pi: ExtensionAPI): void {
 
 		async execute(_toolCallId, params, signal, onUpdate, _ctx) {
 			const config = loadConfig();
-			const mergedResultLimit = resolveMergedResultLimit(params.max_results, config);
 			const providers = instantiateSearchProviders(config);
 			if (providers.length === 0) {
 				throw new Error(`No search sources configured. Run /${WEB_TOOLS_COMMAND_NAME} to configure one or more sources.`);
 			}
 			const providerNames = providers.map(({ providerName }) => providerName);
+			const mergedResultLimit = resolveMergedResultLimit(params.max_results, config, providerNames);
 			const sourceResultLimits = buildSourceResultLimits(config, providerNames);
 
 			onUpdate?.({

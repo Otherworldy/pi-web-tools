@@ -6,9 +6,13 @@ import registerWebTools from "./index.js";
 import { configPath } from "./providers/config.js";
 import {
 	clearCloneCache,
+	configureOnesearch,
 	configureSearxng,
 	GitHubInterceptor,
 	OLLAMA_DEFAULT_URL,
+	ONESEARCH_DEFAULT_URL,
+	ONESEARCH_PROVIDER_META,
+	OnesearchProvider,
 	SEARXNG_DEFAULT_URL,
 	SEARXNG_PROVIDER_META,
 	SearxngProvider,
@@ -41,6 +45,8 @@ beforeEach(() => {
 	delete process.env.SEARXNG_URL;
 	delete process.env.OLLAMA_API_KEY;
 	delete process.env.OLLAMA_HOST;
+	delete process.env.ONESEARCH_API_KEY;
+	delete process.env.ONESEARCH_URL;
 	delete process.env.GITHUB_TOKEN;
 	rmSync(CONFIG_PATH, { force: true });
 });
@@ -335,6 +341,37 @@ describe("web_search.execute — source-independent behavior", () => {
 			createMockCtx(),
 		);
 		expect((r?.details as { mergedResultLimit: number }).mergedResultLimit).toBe(30);
+	});
+
+	it("raises the omitted max_results default to a single source's larger resultLimit", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: "http://onesearch.local", resultLimit: 50 } } } });
+		stubFetch([
+			{
+				match: (u) => u.includes("onesearch.local"),
+				response: () =>
+					new Response(
+						JSON.stringify({
+							results: Array.from({ length: 50 }, (_, i) => ({
+								title: `R${i}`,
+								url: `https://r.example/${i}`,
+								snippet: `s${i}`,
+							})),
+						}),
+						{ status: 200 },
+					),
+			},
+		]);
+		const { captured } = registerAndCapture();
+		const r = await captured.tools.get("web_search")?.execute?.(
+			"tc",
+			{ query: "x" },
+			undefined as never,
+			undefined as never,
+			createMockCtx(),
+		);
+		const details = r?.details as { mergedResultLimit: number; resultCount: number };
+		expect(details.mergedResultLimit).toBe(50);
+		expect(details.resultCount).toBe(50);
 	});
 
 	it("uses env-configured brave as a search source", async () => {
@@ -802,9 +839,9 @@ describe("web_fetch.execute — happy path", () => {
 
 // Extraction providers — those with native fetch endpoints. Each entry drives
 // the per-provider error-path assertions below: no-key throw + labeled non-2xx.
-// Search-only providers (Brave/Serper/SearXNG) no longer have their own fetch()
-// after the role split; their fallback path is asserted once in the
-// "search-only providers fall back to generic HTML fetch" block.
+// Search-only providers (Brave/Serper/Perplexity/SearXNG/OneSearch) do not
+// have native fetch() after the role split; their fallback path is asserted
+// once in the "search-only providers fall back to generic HTML fetch" block.
 const FETCH_ERROR_MATRIX: ReadonlyArray<{
 	provider: string;
 	envVar: string;
@@ -867,14 +904,15 @@ describe.each(FETCH_ERROR_MATRIX)("web_fetch.execute — $provider error paths",
 	});
 });
 
-// Brave/Serper/SearXNG are SearchProvider-only after the role split: the
-// orchestrator falls through to `fetchViaGenericHtml`. The dispatch is
-// provider-agnostic — one assertion per behavior is enough.
+// Brave/Serper/Perplexity/SearXNG/OneSearch are SearchProvider-only after the
+// role split: the orchestrator falls through to `fetchViaGenericHtml`. The
+// dispatch is provider-agnostic — one assertion per behavior is enough.
 describe.each([
 	{ provider: "brave", envVar: "BRAVE_SEARCH_API_KEY" },
 	{ provider: "serper", envVar: "SERPER_API_KEY" },
 	{ provider: "searxng", envVar: "SEARXNG_API_KEY" },
 	{ provider: "perplexity", envVar: "PERPLEXITY_API_KEY" },
+	{ provider: "onesearch", envVar: "ONESEARCH_API_KEY" },
 ])("web_fetch.execute — $provider falls back to generic HTML", ({ provider, envVar }) => {
 	it("does not throw on missing key (raw HTTP doesn't authenticate to the target)", async () => {
 		writeConfig({ search: { sources: { [provider]: {} } } });
@@ -1479,6 +1517,7 @@ describe("/web-tools command", () => {
 			"Perplexity",
 			"SearXNG",
 			"Ollama",
+			"OneSearch",
 		]);
 		expect(labels.some((l) => l.includes("✓"))).toBe(false);
 
@@ -1993,6 +2032,390 @@ describe("configureSearxng", () => {
 		expect(calls[1].label).toMatch(/key/i);
 		// Mask hides the middle but reveals the first/last 4 chars
 		expect(calls[1].placeholder).toContain("exis...-key");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// OneSearch provider-specific tests
+// ---------------------------------------------------------------------------
+// OneSearch Relay is self-hosted with a configurable baseUrl and an optional
+// osr_/oak_ token. It only exposes search to this package; page fetching still
+// falls through to the generic web_fetch pipeline.
+
+describe("web_search.execute — onesearch", () => {
+	const ONESEARCH_OK_BODY = JSON.stringify({
+		results: [
+			{ title: "T1", url: "https://result.example/1", snippet: "snippet 1", provider: "exa" },
+			{ title: "T2", url: "https://result.example/2", content: "content 2", provider: "you" },
+		],
+		providers: [{ provider: "exa", status: "success", result_count: 1 }],
+		meta: { mode: "parallel", total_results: 2 },
+	});
+
+	it("uses env URL (wins over config and default)", async () => {
+		process.env.ONESEARCH_URL = "http://env-host:9000";
+		writeConfig({ search: { sources: { onesearch: { baseUrl: "http://config-host:7000" } } } });
+		const stub = stubFetch([
+			{
+				match: (u) => u.startsWith("http://env-host:9000/"),
+				response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }),
+			},
+		]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "hello" }, undefined as never, undefined as never, createMockCtx());
+		const url = new URL(stub.calls[0].url);
+		expect(`${url.protocol}//${url.host}`).toBe("http://env-host:9000");
+		expect(url.pathname).toBe("/v1/search");
+		const body = JSON.parse(stub.calls[0].init?.body as string);
+		expect(body).toEqual({ query: "hello", limit: 10, include_raw: false });
+	});
+
+	it("falls back to config URL when env is unset", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: "http://config-host:7000" } } } });
+		const stub = stubFetch([
+			{
+				match: (u) => u.startsWith("http://config-host:7000/"),
+				response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }),
+			},
+		]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		expect(new URL(stub.calls[0].url).host).toBe("config-host:7000");
+	});
+
+	it("uses configured default OneSearch URL when selected without a custom URL", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: ONESEARCH_DEFAULT_URL } } } });
+		const stub = stubFetch([
+			{
+				match: (u) => u.startsWith("http://localhost:5173/"),
+				response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }),
+			},
+		]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		expect(new URL(stub.calls[0].url).host).toBe("localhost:5173");
+	});
+
+	it("accepts source-level defaultResults as a resultLimit alias", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: ONESEARCH_DEFAULT_URL, defaultResults: 50 } } } });
+		const stub = stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		const body = JSON.parse(stub.calls[0].init?.body as string);
+		expect(body.limit).toBe(50);
+	});
+
+	it("trailing slash on baseUrl does not produce a double-slash", async () => {
+		process.env.ONESEARCH_URL = "http://host:5173/";
+		const stub = stubFetch([
+			{ match: (u) => u.includes("host:5173"), response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) },
+		]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		expect(stub.calls[0].url).not.toMatch(/\/\/v1\/search/);
+		expect(new URL(stub.calls[0].url).pathname).toBe("/v1/search");
+	});
+
+	it("sends Bearer Authorization only when an API token is configured", async () => {
+		process.env.ONESEARCH_API_KEY = "osr-env-token";
+		writeConfig({ search: { sources: { onesearch: { baseUrl: ONESEARCH_DEFAULT_URL } } } });
+		const stub = stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		const headers = stub.calls[0].init?.headers as Record<string, string>;
+		expect(headers.Authorization).toBe("Bearer osr-env-token");
+	});
+
+	it("omits Authorization when no API token is configured", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: ONESEARCH_DEFAULT_URL } } } });
+		const stub = stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		const headers = stub.calls[0].init?.headers as Record<string, string>;
+		expect(headers.Authorization).toBeUndefined();
+	});
+
+	it("falls back to search.sources.onesearch.apiKey when env is unset", async () => {
+		writeConfig({ search: { sources: { onesearch: { apiKey: "oak-config-key" } } } });
+		const stub = stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
+		const { captured } = registerAndCapture();
+		await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		const headers = stub.calls[0].init?.headers as Record<string, string>;
+		expect(headers.Authorization).toBe("Bearer oak-config-key");
+		expect(new URL(stub.calls[0].url).host).toBe("localhost:5173");
+	});
+
+	it("maps snippet first and content as fallback", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: ONESEARCH_DEFAULT_URL } } } });
+		stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
+		const { captured } = registerAndCapture();
+		const r = await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x", max_results: 5 }, undefined as never, undefined as never, createMockCtx());
+		expect((r?.details as { results: Array<{ snippet: string }> }).results.map((result) => result.snippet)).toEqual([
+			"snippet 1",
+			"content 2",
+		]);
+	});
+
+	it("slices normalized results to max_results", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: ONESEARCH_DEFAULT_URL } } } });
+		stubFetch([
+			{
+				match: () => true,
+				response: () =>
+					new Response(
+						JSON.stringify({
+							results: Array.from({ length: 8 }, (_, i) => ({
+								title: `T${i}`,
+								url: `https://r/${i}`,
+								snippet: `snip ${i}`,
+							})),
+						}),
+						{ status: 200 },
+					),
+			},
+		]);
+		const { captured } = registerAndCapture();
+		const r = await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x", max_results: 3 }, undefined as never, undefined as never, createMockCtx());
+		expect((r?.details as { results: Array<{ title: string }> }).results).toHaveLength(3);
+	});
+
+	it("wraps non-2xx errors and surfaces OneSearch JSON error messages", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: ONESEARCH_DEFAULT_URL } } } });
+		stubFetch([
+			{
+				match: () => true,
+				response: () =>
+					new Response(JSON.stringify({ error: { message: "api token rate limit exceeded", status: 429 } }), {
+						status: 429,
+					}),
+			},
+		]);
+		const { captured } = registerAndCapture();
+		await expect(
+			captured.tools
+				.get("web_search")
+				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
+		).rejects.toThrow(/OneSearch Search API error \(429\).*api token rate limit exceeded/);
+	});
+
+	it("401 attaches an API-token hint", async () => {
+		writeConfig({ search: { sources: { onesearch: { apiKey: "bad-token" } } } });
+		stubFetch([{ match: () => true, response: () => new Response("unauthorized", { status: 401 }) }]);
+		const { captured } = registerAndCapture();
+		await expect(
+			captured.tools
+				.get("web_search")
+				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
+		).rejects.toThrow(/ONESEARCH_API_KEY.*osr_ API token or oak_ admin API key/);
+	});
+
+	it("normalizes missing fields on result rows to empty strings", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: ONESEARCH_DEFAULT_URL } } } });
+		stubFetch([{ match: () => true, response: () => new Response(JSON.stringify({ results: [{}] }), { status: 200 }) }]);
+		const { captured } = registerAndCapture();
+		const r = await captured.tools
+			.get("web_search")
+			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
+		expect(r?.details).toMatchObject({ results: [{ title: "", url: "", snippet: "" }] });
+	});
+});
+
+describe("/web-tools command — onesearch", () => {
+	it("prompts URL first, then optional token, and persists both", async () => {
+		const { captured } = registerAndCapture();
+		const ctx = createMockCtx({ hasUI: true });
+		(ctx.ui.select as ReturnType<typeof vi.fn>).mockResolvedValueOnce("OneSearch");
+		const inputMock = ctx.ui.input as ReturnType<typeof vi.fn>;
+		inputMock.mockResolvedValueOnce("http://my-onesearch:5173").mockResolvedValueOnce("osr-token");
+		await captured.commands.get("web-tools")?.handler("", ctx as never);
+		const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+		expect(saved).toMatchObject({
+			search: {
+				sources: {
+					onesearch: { baseUrl: "http://my-onesearch:5173", apiKey: "osr-token" },
+				},
+			},
+		});
+		expect(saved.provider).toBeUndefined();
+		expect(saved.baseUrls).toBeUndefined();
+		expect(saved.apiKeys).toBeUndefined();
+		expect(inputMock.mock.calls).toHaveLength(2);
+		expect(String(inputMock.mock.calls[0][0])).toMatch(/URL/i);
+		expect(String(inputMock.mock.calls[1][0])).toMatch(/token/i);
+	});
+
+	it("empty URL input falls back to the default URL and leaves token unset", async () => {
+		const { captured } = registerAndCapture();
+		const ctx = createMockCtx({ hasUI: true });
+		(ctx.ui.select as ReturnType<typeof vi.fn>).mockResolvedValueOnce("OneSearch");
+		(ctx.ui.input as ReturnType<typeof vi.fn>).mockResolvedValueOnce("").mockResolvedValueOnce("");
+		await captured.commands.get("web-tools")?.handler("", ctx as never);
+		const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+		expect(saved.search.sources.onesearch.baseUrl).toBe("http://localhost:5173");
+		expect(saved.search.sources.onesearch.apiKey).toBeUndefined();
+		expect(saved.provider).toBeUndefined();
+		expect(saved.baseUrls).toBeUndefined();
+		expect(saved.apiKeys).toBeUndefined();
+	});
+
+	it("keeps existing URL and token when both inputs are empty", async () => {
+		writeConfig({ search: { sources: { onesearch: { baseUrl: "http://existing:5173", apiKey: "existing-token" } } } });
+		const { captured } = registerAndCapture();
+		const ctx = createMockCtx({ hasUI: true });
+		(ctx.ui.select as ReturnType<typeof vi.fn>).mockResolvedValueOnce("OneSearch (configured)");
+		(ctx.ui.input as ReturnType<typeof vi.fn>).mockResolvedValueOnce("").mockResolvedValueOnce("");
+		await captured.commands.get("web-tools")?.handler("", ctx as never);
+		const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+		expect(saved.search.sources.onesearch.baseUrl).toBe("http://existing:5173");
+		expect(saved.search.sources.onesearch.apiKey).toBe("existing-token");
+	});
+
+	it("marks onesearch (configured) when ONESEARCH_URL env is set, but not when only the default applies", async () => {
+		{
+			const { captured } = registerAndCapture();
+			const ctx = createMockCtx({ hasUI: true });
+			(ctx.ui.select as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+			await captured.commands.get("web-tools")?.handler("", ctx as never);
+			const labels = (ctx.ui.select as ReturnType<typeof vi.fn>).mock.calls[0][1] as string[];
+			expect(labels).toContain("OneSearch");
+			expect(labels).not.toContain("OneSearch (configured)");
+		}
+		process.env.ONESEARCH_URL = "http://my-onesearch:5173";
+		{
+			const { captured } = registerAndCapture();
+			const ctx = createMockCtx({ hasUI: true });
+			(ctx.ui.select as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+			await captured.commands.get("web-tools")?.handler("", ctx as never);
+			const labels = (ctx.ui.select as ReturnType<typeof vi.fn>).mock.calls[0][1] as string[];
+			expect(labels).toContain("OneSearch (configured)");
+		}
+	});
+
+	it("show surfaces the resolved onesearch URL and its source", async () => {
+		process.env.ONESEARCH_URL = "http://my-onesearch:5173";
+		const { captured } = registerAndCapture();
+		const ctx = createMockCtx({ hasUI: true });
+		await captured.commands.get("web-tools")?.handler("show", ctx as never);
+		const msg = (ctx.ui.notify as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(msg).toContain("onesearch url: http://my-onesearch:5173");
+		expect(msg).toContain("source: env");
+	});
+});
+
+describe("ONESEARCH_PROVIDER_META", () => {
+	it("declares envVar as ONESEARCH_API_KEY", () => {
+		expect(ONESEARCH_PROVIDER_META.envVar).toBe("ONESEARCH_API_KEY");
+	});
+
+	it("declares baseUrlEnvVar as ONESEARCH_URL", () => {
+		expect(ONESEARCH_PROVIDER_META.baseUrlEnvVar).toBe("ONESEARCH_URL");
+	});
+});
+
+describe("OnesearchProvider constructor", () => {
+	it("accepts http baseUrl", () => {
+		expect(() => new OnesearchProvider({ baseUrl: "http://localhost:5173" })).not.toThrow();
+	});
+
+	it("accepts https baseUrl", () => {
+		expect(() => new OnesearchProvider({ baseUrl: "https://onesearch.example/" })).not.toThrow();
+	});
+
+	it("accepts an empty baseUrl (deferred-config state — search() then throws)", () => {
+		expect(() => new OnesearchProvider({ baseUrl: "" })).not.toThrow();
+	});
+
+	it("rejects file:// scheme", () => {
+		expect(() => new OnesearchProvider({ baseUrl: "file:///etc/passwd" })).toThrow(/must use http/);
+	});
+
+	it("rejects javascript: scheme", () => {
+		expect(() => new OnesearchProvider({ baseUrl: "javascript:alert(1)" })).toThrow(/must use http/);
+	});
+
+	it("rejects an unparseable URL", () => {
+		expect(() => new OnesearchProvider({ baseUrl: "not a url" })).toThrow(/is not a valid URL/);
+	});
+});
+
+describe("OnesearchProvider.search() — direct unit tests", () => {
+	it("throws 'ONESEARCH_URL is not set' when constructed with an empty baseUrl", async () => {
+		const provider = new OnesearchProvider({ baseUrl: "" });
+		await expect(provider.search("q", 5)).rejects.toThrow(/ONESEARCH_URL is not set/);
+	});
+});
+
+describe("configureOnesearch", () => {
+	function makeUi(inputs: Array<string | null | undefined>) {
+		const calls: Array<{ label: string; placeholder: string }> = [];
+		const ui = {
+			async input(label: string, placeholder: string) {
+				calls.push({ label, placeholder });
+				return inputs.shift();
+			},
+		};
+		return { ui, calls };
+	}
+
+	it("returns null when the user cancels at the URL prompt", async () => {
+		const { ui } = makeUi([undefined]);
+		expect(await configureOnesearch(ui, {})).toBeNull();
+	});
+
+	it("returns null when the user cancels at the API-token prompt", async () => {
+		const { ui } = makeUi(["http://h:5173", undefined]);
+		expect(await configureOnesearch(ui, {})).toBeNull();
+	});
+
+	it("uses ONESEARCH_DEFAULT_URL and null apiKey when both inputs are empty and no current values exist", async () => {
+		const { ui } = makeUi(["", ""]);
+		expect(await configureOnesearch(ui, {})).toEqual({ baseUrl: ONESEARCH_DEFAULT_URL, apiKey: null });
+	});
+
+	it("keeps current values when both inputs are empty", async () => {
+		const { ui } = makeUi(["", ""]);
+		expect(await configureOnesearch(ui, { baseUrl: "http://kept:5173", apiKey: "kept-token" })).toEqual({
+			baseUrl: "http://kept:5173",
+			apiKey: "kept-token",
+		});
+	});
+
+	it("uses fresh values when both inputs are non-empty", async () => {
+		const { ui } = makeUi(["  http://new:5173  ", "  new-token  "]);
+		expect(await configureOnesearch(ui, { baseUrl: "http://kept:5173", apiKey: "kept-token" })).toEqual({
+			baseUrl: "http://new:5173",
+			apiKey: "new-token",
+		});
+	});
+
+	it("prompts URL first, then token, with placeholders that reflect current values", async () => {
+		const { ui, calls } = makeUi(["", ""]);
+		await configureOnesearch(ui, { baseUrl: "http://existing:5173", apiKey: "existing-token" });
+		expect(calls).toHaveLength(2);
+		expect(calls[0].label).toMatch(/URL/i);
+		expect(calls[0].placeholder).toContain("http://existing:5173");
+		expect(calls[1].label).toMatch(/token/i);
+		expect(calls[1].placeholder).toContain("exis...oken");
 	});
 });
 
