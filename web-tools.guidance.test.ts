@@ -32,7 +32,7 @@ beforeEach(() => {
 describe("web-tools guidance overrides", () => {
 	it("uses built-in defaults when no config file exists", () => {
 		const { captured } = registerAndCapture();
-		const searchTool = captured.tools.get("web_search")!;
+		const searchTool = captured.tools.get("one_search")!;
 		const fetchTool = captured.tools.get("web_fetch")!;
 		expect(searchTool.promptSnippet).toBe(DEFAULT_WEB_SEARCH_SNIPPET);
 		expect((searchTool.promptGuidelines as string[]).length).toBe(DEFAULT_SEARCH_GUIDELINES_LENGTH);
@@ -43,7 +43,7 @@ describe("web-tools guidance overrides", () => {
 	it("overrides web_search snippet only, web_fetch uses defaults", () => {
 		writeConfig({ guidance: { web_search: { promptSnippet: "Custom search snippet" } } });
 		const { captured } = registerAndCapture();
-		const searchTool = captured.tools.get("web_search")!;
+		const searchTool = captured.tools.get("one_search")!;
 		const fetchTool = captured.tools.get("web_fetch")!;
 		expect(searchTool.promptSnippet).toBe("Custom search snippet");
 		expect((searchTool.promptGuidelines as string[]).length).toBe(DEFAULT_SEARCH_GUIDELINES_LENGTH);
@@ -53,7 +53,7 @@ describe("web-tools guidance overrides", () => {
 	it("overrides web_fetch snippet only, web_search uses defaults", () => {
 		writeConfig({ guidance: { web_fetch: { promptSnippet: "Custom fetch snippet" } } });
 		const { captured } = registerAndCapture();
-		const searchTool = captured.tools.get("web_search")!;
+		const searchTool = captured.tools.get("one_search")!;
 		const fetchTool = captured.tools.get("web_fetch")!;
 		expect(searchTool.promptSnippet).toBe(DEFAULT_WEB_SEARCH_SNIPPET);
 		expect(fetchTool.promptSnippet).toBe("Custom fetch snippet");
@@ -67,7 +67,7 @@ describe("web-tools guidance overrides", () => {
 			},
 		});
 		const { captured } = registerAndCapture();
-		const searchTool = captured.tools.get("web_search")!;
+		const searchTool = captured.tools.get("one_search")!;
 		const fetchTool = captured.tools.get("web_fetch")!;
 		expect(searchTool.promptSnippet).toBe("Search custom");
 		expect(searchTool.promptGuidelines).toEqual(["Rule S"]);
@@ -80,7 +80,7 @@ describe("web-tools guidance overrides", () => {
 			guidance: { web_search: { promptSnippet: 123 }, web_fetch: { promptGuidelines: "not-array" } },
 		});
 		const { captured } = registerAndCapture();
-		const searchTool = captured.tools.get("web_search")!;
+		const searchTool = captured.tools.get("one_search")!;
 		const fetchTool = captured.tools.get("web_fetch")!;
 		expect(searchTool.promptSnippet).toBe(DEFAULT_WEB_SEARCH_SNIPPET);
 		expect((fetchTool.promptGuidelines as string[]).length).toBe(DEFAULT_FETCH_GUIDELINES_LENGTH);
@@ -89,7 +89,7 @@ describe("web-tools guidance overrides", () => {
 	it("falls back to defaults on empty promptSnippet", () => {
 		writeConfig({ guidance: { web_search: { promptSnippet: "" } } });
 		const { captured } = registerAndCapture();
-		const searchTool = captured.tools.get("web_search")!;
+		const searchTool = captured.tools.get("one_search")!;
 		expect(searchTool.promptSnippet).toBe(DEFAULT_WEB_SEARCH_SNIPPET);
 	});
 

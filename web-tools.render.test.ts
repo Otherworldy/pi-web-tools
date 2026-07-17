@@ -9,7 +9,7 @@ const theme = makeTheme() as unknown as Theme;
 function setup() {
 	const { pi, captured } = createMockPi();
 	registerWebTools(pi);
-	const search = captured.tools.get("web_search");
+	const search = captured.tools.get("one_search");
 	const fetchTool = captured.tools.get("web_fetch");
 	if (!search || !fetchTool) throw new Error("tools not registered");
 	return { search, fetch: fetchTool };
@@ -19,7 +19,7 @@ function rendered(node: unknown): string {
 	return (node as { text: string }).text;
 }
 
-describe("web_search renderCall", () => {
+describe("one_search renderCall", () => {
 	it('emits "WebSearch" label and quoted query', () => {
 		const { search } = setup();
 		const node = search.renderCall?.({ query: "ai news" } as never, theme, undefined as never) as Text;
@@ -29,7 +29,7 @@ describe("web_search renderCall", () => {
 	});
 });
 
-describe("web_search renderResult", () => {
+describe("one_search renderResult", () => {
 	it('returns "Searching..." while partial', () => {
 		const { search } = setup();
 		const node = search.renderResult?.(

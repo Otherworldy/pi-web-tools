@@ -52,9 +52,9 @@ beforeEach(() => {
 });
 
 describe("registerWebTools — registration", () => {
-	it("registers web_search + web_fetch tools", () => {
+	it("registers one_search + web_fetch tools", () => {
 		const { captured } = registerAndCapture();
-		expect(captured.tools.has("web_search")).toBe(true);
+		expect(captured.tools.has("one_search")).toBe(true);
 		expect(captured.tools.has("web_fetch")).toBe(true);
 	});
 
@@ -72,9 +72,9 @@ describe("registerWebTools — registration", () => {
 		expect(params.properties.forceClone.description).toContain("GitHub");
 	});
 
-	it("web_search schema declares merged-result minimum without a default or maximum", () => {
+	it("one_search schema declares merged-result minimum without a default or maximum", () => {
 		const { captured } = registerAndCapture();
-		const params = captured.tools.get("web_search")?.parameters as unknown as {
+		const params = captured.tools.get("one_search")?.parameters as unknown as {
 			properties: { max_results: { minimum: number; maximum?: number; default?: number; description: string } };
 		};
 		expect(params.properties.max_results).toMatchObject({ minimum: 1 });
@@ -83,10 +83,10 @@ describe("registerWebTools — registration", () => {
 		expect(params.properties.max_results.description).toContain("search.mergedResults (20)");
 	});
 
-	it("web_search schema references configured search.mergedResults without setting a schema default", () => {
+	it("one_search schema references configured search.mergedResults without setting a schema default", () => {
 		writeConfig({ search: { mergedResults: 30 } });
 		const { captured } = registerAndCapture();
-		const params = captured.tools.get("web_search")?.parameters as unknown as {
+		const params = captured.tools.get("one_search")?.parameters as unknown as {
 			properties: { max_results: { minimum: number; maximum?: number; default?: number; description: string } };
 		};
 		expect(params.properties.max_results).toMatchObject({ minimum: 1 });
@@ -167,7 +167,7 @@ const PROVIDER_MATRIX = [
 	},
 ] as const;
 
-describe.each(PROVIDER_MATRIX)("web_search.execute — $provider", ({
+describe.each(PROVIDER_MATRIX)("one_search.execute — $provider", ({
 	provider,
 	envVar,
 	urlMatcher,
@@ -186,7 +186,7 @@ describe.each(PROVIDER_MATRIX)("web_search.execute — $provider", ({
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "hello", max_results: 3 }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.content[0]).toMatchObject({ type: "text" });
 		if (authHeader) {
@@ -213,7 +213,7 @@ describe.each(PROVIDER_MATRIX)("web_search.execute — $provider", ({
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		if (authHeader) {
 			const headers = stub.calls[0].init?.headers as Record<string, string>;
@@ -234,7 +234,7 @@ describe.each(PROVIDER_MATRIX)("web_search.execute — $provider", ({
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(new RegExp(`${envVar} is not set`));
 	});
@@ -250,7 +250,7 @@ describe.each(PROVIDER_MATRIX)("web_search.execute — $provider", ({
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("No results found") });
 	});
@@ -268,13 +268,13 @@ describe.each(PROVIDER_MATRIX)("web_search.execute — $provider", ({
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(new RegExp(`${label} Search API error \\(429\\)`));
 	});
 });
 
-describe("web_search.execute — source-independent behavior", () => {
+describe("one_search.execute — source-independent behavior", () => {
 	it("uses the built-in per-source default result count", async () => {
 		process.env.BRAVE_SEARCH_API_KEY = "k";
 		const stub = stubFetch([
@@ -285,7 +285,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const url = stub.calls[0].url;
 		expect(new URL(url).searchParams.get("count")).toBe("10");
@@ -302,7 +302,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).searchParams.get("count")).toBe("99");
 	});
@@ -318,7 +318,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).searchParams.get("count")).toBe("3");
 	});
@@ -333,7 +333,7 @@ describe("web_search.execute — source-independent behavior", () => {
 			},
 		]);
 		const { captured } = registerAndCapture();
-		const r = await captured.tools.get("web_search")?.execute?.(
+		const r = await captured.tools.get("one_search")?.execute?.(
 			"tc",
 			{ query: "x" },
 			undefined as never,
@@ -362,7 +362,7 @@ describe("web_search.execute — source-independent behavior", () => {
 			},
 		]);
 		const { captured } = registerAndCapture();
-		const r = await captured.tools.get("web_search")?.execute?.(
+		const r = await captured.tools.get("one_search")?.execute?.(
 			"tc",
 			{ query: "x" },
 			undefined as never,
@@ -390,7 +390,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect((r?.details as { backend: string }).backend).toBe("brave");
 		expect(stub.calls[0].url).toContain("api.search.brave.com");
@@ -402,7 +402,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/No search sources enabled\/configured/);
 	});
@@ -417,7 +417,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).host).toBe("localhost:5173");
 	});
@@ -426,7 +426,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/No search sources enabled\/configured/);
 	});
@@ -437,7 +437,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/EXA_API_KEY is not set/);
 	});
@@ -447,7 +447,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/BRAVE_SEARCH_API_KEY is not set/);
 	});
@@ -468,7 +468,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers["X-Subscription-Token"]).toBe("legacy-key");
@@ -526,7 +526,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x", max_results: 10 }, undefined as never, undefined as never, createMockCtx());
 		const details = r?.details as {
 			backend: string;
@@ -589,7 +589,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x", max_results: 3 }, undefined as never, undefined as never, createMockCtx());
 		const details = r?.details as {
 			sourceResultLimits: Record<string, number>;
@@ -629,7 +629,7 @@ describe("web_search.execute — source-independent behavior", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const text = (r?.content[0] as { text: string }).text;
 		const details = r?.details as { failures: string[]; results: Array<{ title: string }> };
@@ -1298,7 +1298,7 @@ describe("web_fetch.execute — provider fetch", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		// Empty fields land as empty strings, not crashes.
 		expect(r?.details).toMatchObject({ results: [{ title: "", url: "", snippet: "" }] });
@@ -1316,7 +1316,7 @@ describe("web_fetch.execute — provider fetch", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.details).toMatchObject({ results: [{ title: "", url: "", snippet: "" }] });
 	});
@@ -1646,7 +1646,7 @@ describe("/web-tools command", () => {
 // (needs a base URL), API key is optional (only for proxy-fronted instances),
 // and the JSON API exposes no `count` parameter. Kept out of PROVIDER_MATRIX
 // because the "throws when no key" assumption doesn't hold.
-describe("web_search.execute — searxng", () => {
+describe("one_search.execute — searxng", () => {
 	const SEARXNG_OK_BODY = JSON.stringify({
 		results: [
 			{ title: "T1", url: "https://result.example/1", content: "snippet 1" },
@@ -1665,7 +1665,7 @@ describe("web_search.execute — searxng", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "hello" }, undefined as never, undefined as never, createMockCtx());
 		const url = new URL(stub.calls[0].url);
 		expect(`${url.protocol}//${url.host}`).toBe("http://env-host:9000");
@@ -1686,7 +1686,7 @@ describe("web_search.execute — searxng", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).host).toBe("config-host:7000");
 	});
@@ -1701,7 +1701,7 @@ describe("web_search.execute — searxng", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).host).toBe("localhost:8080");
 	});
@@ -1713,7 +1713,7 @@ describe("web_search.execute — searxng", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(stub.calls[0].url).not.toMatch(/\/\/search/);
 		expect(new URL(stub.calls[0].url).pathname).toBe("/search");
@@ -1726,7 +1726,7 @@ describe("web_search.execute — searxng", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(stub.calls[0].url).not.toMatch(/\/\/search/);
 		expect(new URL(stub.calls[0].url).pathname).toBe("/search");
@@ -1738,7 +1738,7 @@ describe("web_search.execute — searxng", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(SEARXNG_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers.Authorization).toBe("Bearer env-bearer");
@@ -1749,7 +1749,7 @@ describe("web_search.execute — searxng", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(SEARXNG_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers.Authorization).toBeUndefined();
@@ -1760,7 +1760,7 @@ describe("web_search.execute — searxng", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(SEARXNG_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers.Authorization).toBe("Bearer config-bearer");
@@ -1786,7 +1786,7 @@ describe("web_search.execute — searxng", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x", max_results: 3 }, undefined as never, undefined as never, createMockCtx());
 		expect((r?.details as { results: Array<{ title: string; url: string; snippet: string }> }).results).toHaveLength(
 			3,
@@ -1800,7 +1800,7 @@ describe("web_search.execute — searxng", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("No results found") });
 	});
@@ -1811,7 +1811,7 @@ describe("web_search.execute — searxng", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/SearXNG Search API error \(500\)/);
 	});
@@ -1822,7 +1822,7 @@ describe("web_search.execute — searxng", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/JSON output disabled/);
 	});
@@ -1833,7 +1833,7 @@ describe("web_search.execute — searxng", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/rejected the Bearer token.*SEARXNG_API_KEY/);
 	});
@@ -1845,7 +1845,7 @@ describe("web_search.execute — searxng", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.details).toMatchObject({ results: [{ title: "", url: "", snippet: "" }] });
 	});
@@ -2014,7 +2014,7 @@ describe("SearxngProvider constructor", () => {
 	});
 });
 
-// The integrated paths (web_search.execute, /web-tools) always supply
+// The integrated paths (one_search.execute, /web-tools) always supply
 // a baseUrl via resolveSearxngBaseUrl, which falls back to SEARXNG_DEFAULT_URL.
 // The "is not set" error path inside SearxngProvider.search() is therefore
 // only reachable for direct programmatic consumers — the class is exported,
@@ -2091,7 +2091,7 @@ describe("configureSearxng", () => {
 // osr_/oak_ token. It only exposes search to this package; page fetching still
 // falls through to the generic web_fetch pipeline.
 
-describe("web_search.execute — onesearch", () => {
+describe("one_search.execute — onesearch", () => {
 	const ONESEARCH_OK_BODY = JSON.stringify({
 		results: [
 			{ title: "T1", url: "https://result.example/1", snippet: "snippet 1", provider: "exa" },
@@ -2112,7 +2112,7 @@ describe("web_search.execute — onesearch", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "hello" }, undefined as never, undefined as never, createMockCtx());
 		const url = new URL(stub.calls[0].url);
 		expect(`${url.protocol}//${url.host}`).toBe("http://env-host:9000");
@@ -2131,7 +2131,7 @@ describe("web_search.execute — onesearch", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).host).toBe("config-host:7000");
 	});
@@ -2146,7 +2146,7 @@ describe("web_search.execute — onesearch", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).host).toBe("localhost:5173");
 	});
@@ -2156,7 +2156,7 @@ describe("web_search.execute — onesearch", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const body = JSON.parse(stub.calls[0].init?.body as string);
 		expect(body.limit).toBe(50);
@@ -2169,7 +2169,7 @@ describe("web_search.execute — onesearch", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(stub.calls[0].url).not.toMatch(/\/\/v1\/search/);
 		expect(new URL(stub.calls[0].url).pathname).toBe("/v1/search");
@@ -2181,7 +2181,7 @@ describe("web_search.execute — onesearch", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers.Authorization).toBe("Bearer osr-env-token");
@@ -2192,7 +2192,7 @@ describe("web_search.execute — onesearch", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers.Authorization).toBeUndefined();
@@ -2203,7 +2203,7 @@ describe("web_search.execute — onesearch", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers.Authorization).toBe("Bearer oak-config-key");
@@ -2215,7 +2215,7 @@ describe("web_search.execute — onesearch", () => {
 		stubFetch([{ match: () => true, response: () => new Response(ONESEARCH_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x", max_results: 5 }, undefined as never, undefined as never, createMockCtx());
 		expect((r?.details as { results: Array<{ snippet: string }> }).results.map((result) => result.snippet)).toEqual([
 			"snippet 1",
@@ -2243,7 +2243,7 @@ describe("web_search.execute — onesearch", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x", max_results: 3 }, undefined as never, undefined as never, createMockCtx());
 		expect((r?.details as { results: Array<{ title: string }> }).results).toHaveLength(3);
 	});
@@ -2262,7 +2262,7 @@ describe("web_search.execute — onesearch", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/OneSearch Search API error \(429\).*api token rate limit exceeded/);
 	});
@@ -2273,7 +2273,7 @@ describe("web_search.execute — onesearch", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/ONESEARCH_API_KEY.*osr_ API token or oak_ admin API key/);
 	});
@@ -2283,7 +2283,7 @@ describe("web_search.execute — onesearch", () => {
 		stubFetch([{ match: () => true, response: () => new Response(JSON.stringify({ results: [{}] }), { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.details).toMatchObject({ results: [{ title: "", url: "", snippet: "" }] });
 	});
@@ -2475,7 +2475,7 @@ describe("configureOnesearch", () => {
 // baseUrl, optional API key, and vendor fetch endpoint. Kept out of
 // PROVIDER_MATRIX because the optional key breaks the generic "no key" test.
 
-describe("web_search.execute — ollama", () => {
+describe("one_search.execute — ollama", () => {
 	const OLLAMA_OK_BODY = JSON.stringify({
 		results: [
 			{ title: "T1", url: "https://result.example/1", content: "snippet 1" },
@@ -2494,7 +2494,7 @@ describe("web_search.execute — ollama", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "hello" }, undefined as never, undefined as never, createMockCtx());
 		const callUrl = new URL(stub.calls[0].url);
 		expect(`${callUrl.protocol}//${callUrl.host}`).toBe("http://env-host:9000");
@@ -2514,7 +2514,7 @@ describe("web_search.execute — ollama", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).host).toBe("config-host:7000");
 	});
@@ -2529,7 +2529,7 @@ describe("web_search.execute — ollama", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(new URL(stub.calls[0].url).host).toBe("localhost:11434");
 	});
@@ -2541,7 +2541,7 @@ describe("web_search.execute — ollama", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(stub.calls[0].url).not.toMatch(/\/\/api/);
 	});
@@ -2552,7 +2552,7 @@ describe("web_search.execute — ollama", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(OLLAMA_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers.Authorization).toBe("Bearer test-key");
@@ -2563,7 +2563,7 @@ describe("web_search.execute — ollama", () => {
 		const stub = stubFetch([{ match: () => true, response: () => new Response(OLLAMA_OK_BODY, { status: 200 }) }]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers.Authorization).toBeUndefined();
@@ -2576,7 +2576,7 @@ describe("web_search.execute — ollama", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("No results found") });
 	});
@@ -2587,7 +2587,7 @@ describe("web_search.execute — ollama", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/Ollama Search API error \(500\)/);
 	});
@@ -2598,7 +2598,7 @@ describe("web_search.execute — ollama", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/ollama signin/);
 	});
@@ -2609,7 +2609,7 @@ describe("web_search.execute — ollama", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/may not support web search/);
 	});
@@ -2621,7 +2621,7 @@ describe("web_search.execute — ollama", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const result = (r?.details as { results: Array<{ title: string; url: string; snippet: string }> }).results[0];
 		expect(result.title).toBe("");
@@ -2686,7 +2686,7 @@ describe("web_fetch.execute — ollama vendor fetch", () => {
 	});
 });
 
-describe("web_search.execute — ollama network errors", () => {
+describe("one_search.execute — ollama network errors", () => {
 	it("surfaces connection-refused with actionable hint", async () => {
 		writeConfig({ search: { sources: { ollama: { baseUrl: OLLAMA_DEFAULT_URL } } } });
 		const connRefusedError = new TypeError("fetch failed");
@@ -2702,7 +2702,7 @@ describe("web_search.execute — ollama network errors", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/Could not connect to Ollama.*Make sure Ollama is running/);
 	});
@@ -2774,7 +2774,7 @@ describe("/web-tools command — ollama", () => {
 	});
 });
 
-describe("web_search.execute — jina", () => {
+describe("one_search.execute — jina", () => {
 	it("parses the current Jina search data array shape", async () => {
 		process.env.JINA_API_KEY = "k";
 		writeConfig({ search: { sources: { jina: {} } } });
@@ -2789,7 +2789,7 @@ describe("web_search.execute — jina", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "hello" }, undefined as never, undefined as never, createMockCtx());
 		expect((r?.details as { sourceResultCounts: Record<string, number> }).sourceResultCounts).toEqual({ jina: 1 });
 	});
@@ -2809,14 +2809,14 @@ describe("web_search.execute — jina", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "hello" }, undefined as never, undefined as never, createMockCtx());
 		expect((r?.details as { sourceResultCounts: Record<string, number> }).sourceResultCounts).toEqual({ jina: 1 });
 	});
 });
 
 // You.com has a dedicated test block (like SearXNG/Ollama) for fine-grained assertions.
-describe("web_search.execute — youcom", () => {
+describe("one_search.execute — youcom", () => {
 	it("uses env key", async () => {
 		process.env.YOUCOM_API_KEY = "env-key";
 		writeConfig({ search: { sources: { youcom: {} } } });
@@ -2834,7 +2834,7 @@ describe("web_search.execute — youcom", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "hello", max_results: 3 }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers["X-API-Key"]).toBe("env-key");
@@ -2856,7 +2856,7 @@ describe("web_search.execute — youcom", () => {
 		]);
 		const { captured } = registerAndCapture();
 		await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		const headers = stub.calls[0].init?.headers as Record<string, string>;
 		expect(headers["X-API-Key"]).toBe("config-key");
@@ -2867,7 +2867,7 @@ describe("web_search.execute — youcom", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/YOUCOM_API_KEY is not set/);
 	});
@@ -2883,7 +2883,7 @@ describe("web_search.execute — youcom", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("No results found") });
 	});
@@ -2900,7 +2900,7 @@ describe("web_search.execute — youcom", () => {
 		const { captured } = registerAndCapture();
 		await expect(
 			captured.tools
-				.get("web_search")
+				.get("one_search")
 				?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx()),
 		).rejects.toThrow(/You\.com Search API error \(429\)/);
 	});
@@ -2916,7 +2916,7 @@ describe("web_search.execute — youcom", () => {
 		]);
 		const { captured } = registerAndCapture();
 		const r = await captured.tools
-			.get("web_search")
+			.get("one_search")
 			?.execute?.("tc", { query: "x" }, undefined as never, undefined as never, createMockCtx());
 		expect(r?.details).toMatchObject({ results: [{ title: "", url: "", snippet: "" }] });
 	});

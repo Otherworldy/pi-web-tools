@@ -1,9 +1,9 @@
 /**
  * rpiv-web-tools — body
  *
- * Provides `web_search` and `web_fetch` tools backed by configurable search
+ * Provides `one_search` and `web_fetch` tools backed by configurable search
  * providers, plus the `/web-tools` slash command for search source
- * configuration. web_search queries all enabled/configured sources concurrently;
+ * configuration. one_search queries all enabled/configured sources concurrently;
  * web_fetch uses URL interceptors, enabled/configured extraction providers, then
  * generic HTML fetch.
  *
@@ -87,8 +87,8 @@ const saveConfig = writeConfig;
 
 export const DEFAULT_WEB_SEARCH_SNIPPET = "Search the web for up-to-date information";
 export const DEFAULT_WEB_SEARCH_GUIDELINES: string[] = [
-	"Use web_search for information beyond your training data — recent events, current library versions, live API documentation.",
-	"web_search queries all enabled/configured search sources concurrently, then merges and de-duplicates results by URL.",
+	"Use one_search for information beyond your training data — recent events, current library versions, live API documentation.",
+	"one_search queries all enabled/configured search sources concurrently, then merges and de-duplicates results by URL.",
 	"search.defaultResults controls the per-source request count; search.mergedResults controls the default final merged result count.",
 	"Only pass max_results when the user explicitly asks for a specific final result count; otherwise omit it so the configured search.mergedResults is used.",
 	'Use the current year from "Current date:" in your context when searching for recent information or documentation.',
@@ -99,8 +99,8 @@ export const DEFAULT_WEB_SEARCH_GUIDELINES: string[] = [
 
 export const DEFAULT_WEB_FETCH_SNIPPET = "Fetch and read content from a specific URL";
 export const DEFAULT_WEB_FETCH_GUIDELINES: string[] = [
-	"Use web_fetch to read the full content of a specific URL — documentation pages, blog posts, API references found via web_search.",
-	"web_fetch is complementary to web_search: search finds URLs, fetch reads them.",
+	"Use web_fetch to read the full content of a specific URL — documentation pages, blog posts, API references found via one_search.",
+	"web_fetch is complementary to one_search: search finds URLs, fetch reads them.",
 	"For GitHub repository URLs above the clone size threshold, pass forceClone: true only after the user confirms they want a full clone.",
 	'After answering using fetched content, include a "Sources:" section with a markdown hyperlink to the fetched URL.',
 	"Large responses are truncated and spilled to a temp file — the temp path is reported in the result details.",
@@ -425,7 +425,7 @@ function formatFetchHeader(url: string, title: string | undefined, contentType: 
 }
 
 // ---------------------------------------------------------------------------
-// web_search result rendering
+// one_search result rendering
 // ---------------------------------------------------------------------------
 
 function formatSourceResultCounts(
@@ -506,8 +506,8 @@ export function registerWebSearchTool(pi: ExtensionAPI): void {
 	const defaultMergedResults = getMergedResultLimit(config);
 
 	pi.registerTool({
-		name: "web_search",
-		label: "Web Search",
+		name: "one_search",
+		label: "One Search",
 		description:
 			"Search the web for information. Returns a list of results with titles, URLs, and snippets. Use when you need current information not in your training data.",
 		promptSnippet: guidance.promptSnippet ?? DEFAULT_WEB_SEARCH_SNIPPET,
@@ -841,7 +841,7 @@ function formatShowConfigMessage(current: WebToolsConfig): string {
 
 export function registerWebSearchConfigCommand(pi: ExtensionAPI): void {
 	pi.registerCommand(WEB_TOOLS_COMMAND_NAME, {
-		description: "Configure web_search sources, enable/disable flags, API keys, base URLs, per-source result counts, and merged result count",
+		description: "Configure one_search sources, enable/disable flags, API keys, base URLs, per-source result counts, and merged result count",
 		handler: async (args, ctx) => {
 			if (!ctx.hasUI) {
 				ctx.ui?.notify?.(`/${WEB_TOOLS_COMMAND_NAME} requires interactive mode`, "error");
@@ -862,7 +862,7 @@ export function registerWebSearchConfigCommand(pi: ExtensionAPI): void {
 							ctx.ui.notify(`Failed to save default per-source results to ${CONFIG_PATH} — disk write failed`, "error");
 							return;
 						}
-						ctx.ui.notify(`Default per-source web_search result count set to ${defaultResults}`, "info");
+						ctx.ui.notify(`Default per-source one_search result count set to ${defaultResults}`, "info");
 						return;
 					}
 
@@ -876,7 +876,7 @@ export function registerWebSearchConfigCommand(pi: ExtensionAPI): void {
 							ctx.ui.notify(`Failed to save merged result count to ${CONFIG_PATH} — disk write failed`, "error");
 							return;
 						}
-						ctx.ui.notify(`Merged web_search result count set to ${mergedResults}`, "info");
+						ctx.ui.notify(`Merged one_search result count set to ${mergedResults}`, "info");
 						return;
 					}
 

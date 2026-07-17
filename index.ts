@@ -1,7 +1,7 @@
 /**
  * rpiv-web-tools — Pi extension
  *
- * Registers the `web_search` and `web_fetch` tools, plus the
+ * Registers the `one_search` and `web_fetch` tools, plus the
  * `/web-tools` slash command. Body lives in `web-tools.ts`.
  *
  * Config persists under the Pi agent extension config directory. Source env vars
