@@ -8,13 +8,13 @@
   </a>
 </div>
 
-Let the model search the web and read pages. `rpiv-web-tools` adds `web_search` and `web_fetch` tools to [Pi Agent](https://github.com/badlogic/pi-mono) with pluggable providers (Brave, Tavily, Serper, Exa, You.com, Jina, Firecrawl, Perplexity, [SearXNG](https://docs.searxng.org/), [Ollama](https://ollama.com), OneSearch Relay), plus `/web-tools` for interactive search-source setup. `web_search` queries every enabled/configured search source concurrently and merges duplicate URLs; `web_fetch` uses URL interceptors, enabled/configured fetch-capable sources, then generic HTML fetch.
+Let the model search the web and read pages. `rpiv-web-tools` adds `one_search` and `web_fetch` tools to [Pi Agent](https://github.com/badlogic/pi-mono) with pluggable providers (Brave, Tavily, Serper, Exa, You.com, Jina, Firecrawl, Perplexity, [SearXNG](https://docs.searxng.org/), [Ollama](https://ollama.com), OneSearch Relay), plus `/web-tools` for interactive search-source setup. `one_search` queries every enabled/configured search source concurrently and merges duplicate URLs; `web_fetch` uses URL interceptors, enabled/configured fetch-capable sources, then generic HTML fetch.
 
 ![Search source configuration prompt](https://raw.githubusercontent.com/juicesharp/rpiv-mono/main/packages/rpiv-web-tools/docs/config.jpg)
 
 ## Providers
 
-Configure one or more search sources. `web_search` uses all enabled/configured search sources in parallel and de-duplicates merged URLs.
+Configure one or more search sources. `one_search` uses all enabled/configured search sources in parallel and de-duplicates merged URLs.
 
 | Source | Env var | Signup | Fetch mode |
 |---|---|---|---|
@@ -48,17 +48,17 @@ Then restart your Pi session.
 
 ## Tools
 
-- **`web_search`** - query all enabled/configured search sources concurrently, merge titled snippets, and de-duplicate results by URL.
+- **`one_search`** - query all enabled/configured search sources concurrently, merge titled snippets, and de-duplicate results by URL.
   Each source uses `search.defaultResults` as its default request count (10), sources can override with `search.sources.<source>.resultLimit`, `search.sources.<source>.enabled=false` disables a source, and the final merged result count defaults to `search.mergedResults` (20) or per-call `max_results`. No built-in maximum is imposed.
 - **`web_fetch`** - read an http/https URL. Lookup order: URL interceptors
   (see [§GitHub URL interceptor](#github-url-interceptor)), enabled/configured fetch-capable sources
   (Tavily/Exa/You.com/Jina/Firecrawl/Ollama), then generic raw HTTP + HTML-to-text fallback. Large responses truncate
   inline and spill the full body to a temp file the model can read on demand.
 
-### Schema - `web_search`
+### Schema - `one_search`
 
 ```ts
-web_search({
+one_search({
   query: string,                    // natural-language query
   max_results?: number,             // positive integer; overrides the final merged result count (default 20)
 })
@@ -131,13 +131,13 @@ First match wins for each source:
 2. `search.sources.<source>.apiKey` field in `~/.pi/agent/extensions/rpiv-web-tools/config.json`
 3. Legacy `apiKey` field (Brave only — auto-migrated to `search.sources.brave.apiKey`)
 
-For `web_search`, every configured and enabled source is queried concurrently. Set `search.sources.<source>.enabled` to `false` (or run `/web-tools source-disable <source>`) to skip a source even when its env vars are set. Set it to `true` (or run `/web-tools source-enable <source>`) to explicitly enable a source; providers that require API keys still need a key. If no source is enabled/configured, search asks the user to run `/web-tools` instead of assuming a default source. Each source request uses `search.sources.<source>.resultLimit` when set, otherwise `search.defaultResults` (default 10). Final results are round-robin merged and limited by per-call `max_results` or `search.mergedResults` (default 20).
+For `one_search`, every configured and enabled source is queried concurrently. Set `search.sources.<source>.enabled` to `false` (or run `/web-tools source-disable <source>`) to skip a source even when its env vars are set. Set it to `true` (or run `/web-tools source-enable <source>`) to explicitly enable a source; providers that require API keys still need a key. If no source is enabled/configured, search asks the user to run `/web-tools` instead of assuming a default source. Each source request uses `search.sources.<source>.resultLimit` when set, otherwise `search.defaultResults` (default 10). Final results are round-robin merged and limited by per-call `max_results` or `search.mergedResults` (default 20).
 
 For `web_fetch`, URL interceptors run first, enabled/configured fetch-capable sources may provide vendor extraction, and generic HTML fetch is used as the fallback.
 
 ## OneSearch Relay (self-hosted)
 
-OneSearch Relay is a self-hosted multi-search aggregation gateway. This provider calls its native `POST /v1/search` endpoint and maps OneSearch results (`title`, `url`, `snippet`/`content`) into `web_search` results. It is search-only in `rpiv-web-tools`; `web_fetch` still uses URL interceptors, configured extraction providers, then generic HTML fetch.
+OneSearch Relay is a self-hosted multi-search aggregation gateway. This provider calls its native `POST /v1/search` endpoint and maps OneSearch results (`title`, `url`, `snippet`/`content`) into `one_search` results. It is search-only in `rpiv-web-tools`; `web_fetch` still uses URL interceptors, configured extraction providers, then generic HTML fetch.
 
 ```bash
 export ONESEARCH_URL=http://localhost:5173
@@ -167,7 +167,7 @@ export SEARXNG_API_KEY=…
 
 Resolution order for the URL: `SEARXNG_URL` env var → `search.sources.searxng.baseUrl` in `~/.pi/agent/extensions/rpiv-web-tools/config.json` → default `http://localhost:8080`. `/web-tools` prompts for the URL first and the (optional) API key second.
 
-Your instance must have `json` enabled in `settings.yml` under `search.formats` — default SearXNG installs ship with JSON disabled and will return `403 Forbidden` otherwise (per the [SearXNG search API docs](https://docs.searxng.org/dev/search_api.html)). The provider surfaces that case with an actionable hint. SearXNG is search-only in `rpiv-web-tools`, so URLs returned by `web_search` are fetched by the normal `web_fetch` fallback pipeline without any extra setup.
+Your instance must have `json` enabled in `settings.yml` under `search.formats` — default SearXNG installs ship with JSON disabled and will return `403 Forbidden` otherwise (per the [SearXNG search API docs](https://docs.searxng.org/dev/search_api.html)). The provider surfaces that case with an actionable hint. SearXNG is search-only in `rpiv-web-tools`, so URLs returned by `one_search` are fetched by the normal `web_fetch` fallback pipeline without any extra setup.
 
 The SSRF guard (which refuses loopback and RFC-1918 addresses) applies to URLs `web_fetch` retrieves on the model's behalf, not to the SearXNG search endpoint itself: a `SEARXNG_URL` pointing at `http://localhost:8080` or another private host is intentionally reachable, since SearXNG is self-hosted by design.
 
@@ -288,7 +288,7 @@ Override the `promptSnippet` / `promptGuidelines` the model sees for each tool b
     "web_search": {
       "promptSnippet": "Search the web for current docs and library versions",
       "promptGuidelines": [
-        "Only call web_search when training-data answers may be stale.",
+        "Only call one_search when training-data answers may be stale.",
         "Always include a Sources: section with markdown hyperlinks."
       ]
     },
