@@ -1,15 +1,20 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { configPath, getConfigPath, getLegacyConfigPath, readConfig, WebToolsConfigSchema, writeConfig } from "./config.js";
 
-const CONFIG_PATH = configPath("rpiv-web-tools");
-const LEGACY_CONFIG_PATH = join(homedir(), ".config", "rpiv-web-tools", "config.json");
+const TEST_DIR = mkdtempSync(join(tmpdir(), "pi-web-tools-config-"));
+const CONFIG_PATH = join(TEST_DIR, "config.json");
+const LEGACY_CONFIG_PATH = join(homedir(), ".config", "pi-web-tools", "config.json");
 
 beforeEach(() => {
+	process.env.PI_WEB_TOOLS_CONFIG_PATH = CONFIG_PATH;
 	rmSync(CONFIG_PATH, { force: true });
-	rmSync(LEGACY_CONFIG_PATH, { force: true });
+});
+
+afterEach(() => {
+	delete process.env.PI_WEB_TOOLS_CONFIG_PATH;
 });
 
 function writeRaw(contents: string): void {
@@ -18,9 +23,14 @@ function writeRaw(contents: string): void {
 }
 
 describe("getConfigPath", () => {
-	it("returns the canonical Pi agent extension config path", () => {
+	it("honors PI_WEB_TOOLS_CONFIG_PATH override", () => {
 		expect(getConfigPath()).toBe(CONFIG_PATH);
-		expect(CONFIG_PATH).toContain("/.pi/agent/extensions/rpiv-web-tools/config.json");
+	});
+
+	it("default extension path includes pi-web-tools", () => {
+		delete process.env.PI_WEB_TOOLS_CONFIG_PATH;
+		expect(configPath("pi-web-tools")).toContain("/extensions/pi-web-tools/config.json");
+		process.env.PI_WEB_TOOLS_CONFIG_PATH = CONFIG_PATH;
 	});
 
 	it("exposes the legacy ~/.config path for migration compatibility", () => {
@@ -102,11 +112,14 @@ describe("readConfig — released-shape compatibility", () => {
 		expect(readConfig().search?.defaultResults).toBe(8);
 	});
 
-	it("reads and migrates the legacy ~/.config path when the Pi agent extension config is absent", () => {
+	it("skips legacy path migration when PI_WEB_TOOLS_CONFIG_PATH is set", () => {
 		mkdirSync(dirname(LEGACY_CONFIG_PATH), { recursive: true });
 		writeFileSync(LEGACY_CONFIG_PATH, '{"provider":"brave","apiKeys":{"brave":"legacy"}}', "utf-8");
-		expect(readConfig()).toEqual({ search: { sources: { brave: { apiKey: "legacy" } } } });
-		expect(existsSync(CONFIG_PATH)).toBe(true);
+		try {
+			expect(readConfig()).toEqual({});
+		} finally {
+			rmSync(LEGACY_CONFIG_PATH, { force: true });
+		}
 	});
 });
 

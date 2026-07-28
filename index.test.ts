@@ -18,7 +18,7 @@ import {
 	SearxngProvider,
 } from "./providers/index.js";
 
-const CONFIG_PATH = configPath("rpiv-web-tools");
+const CONFIG_PATH = configPath("pi-web-tools");
 
 function registerAndCapture() {
 	const { pi, captured } = createMockPi();
@@ -52,15 +52,21 @@ beforeEach(() => {
 });
 
 describe("registerWebTools — registration", () => {
-	it("registers one_search + web_fetch tools", () => {
+	it("registers one_search + web_fetch + get_search_content + source_check tools", () => {
 		const { captured } = registerAndCapture();
 		expect(captured.tools.has("one_search")).toBe(true);
 		expect(captured.tools.has("web_fetch")).toBe(true);
+		expect(captured.tools.has("get_search_content")).toBe(true);
+		expect(captured.tools.has("source_check")).toBe(true);
 	});
 
-	it("registers /web-tools command", () => {
+	it("registers /web-tools, /search, /curator, /websearch, /activity commands", () => {
 		const { captured } = registerAndCapture();
 		expect(captured.commands.has("web-tools")).toBe(true);
+		expect(captured.commands.has("search")).toBe(true);
+		expect(captured.commands.has("curator")).toBe(true);
+		expect(captured.commands.has("websearch")).toBe(true);
+		expect(captured.commands.has("activity")).toBe(true);
 	});
 
 	it("web_fetch schema exposes forceClone for GitHub clone overrides", () => {
@@ -780,7 +786,7 @@ describe("web_fetch.execute — happy path", () => {
 			?.execute?.("tc", { url: "https://x.com" }, undefined as never, undefined as never, createMockCtx());
 		const init = stub.calls[0].init;
 		const headers = init?.headers as Record<string, string>;
-		expect(headers["User-Agent"]).toMatch(/rpiv-pi/);
+		expect(headers["User-Agent"]).toMatch(/pi-web-tools/);
 		expect(headers.Accept).toContain("text/html");
 		expect(init?.redirect).toBe("follow");
 	});

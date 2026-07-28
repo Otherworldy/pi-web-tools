@@ -10,7 +10,7 @@ import registerWebTools, {
 } from "./index.js";
 import { configPath } from "./providers/config.js";
 
-const CONFIG_PATH = configPath("rpiv-web-tools");
+const CONFIG_PATH = configPath("pi-web-tools");
 const DEFAULT_SEARCH_GUIDELINES_LENGTH = DEFAULT_WEB_SEARCH_GUIDELINES.length;
 const DEFAULT_FETCH_GUIDELINES_LENGTH = DEFAULT_WEB_FETCH_GUIDELINES.length;
 

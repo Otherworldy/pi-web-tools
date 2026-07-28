@@ -5,16 +5,25 @@
  * delegate their `fetch()` method to.
  */
 
+import { fetchRemoteUrl, type DomainPolicy, type Lookup } from "./ssrf.js";
 import type { FetchResponse } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const USER_AGENT = "Mozilla/5.0 (compatible; rpiv-pi/1.0)";
+const USER_AGENT = "Mozilla/5.0 (compatible; pi-web-tools/2.0)";
 const FETCH_ACCEPT_HEADER = "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5";
 const BINARY_CONTENT_TYPE_PREFIXES = ["image/", "video/", "audio/"];
 const HTML_CONTENT_TYPE_TOKEN = "text/html";
+
+export interface SafeFetchOptions {
+	signal?: AbortSignal;
+	allowRanges?: string[];
+	trustEnvProxy?: boolean;
+	domainPolicy?: DomainPolicy;
+	lookup?: Lookup;
+}
 
 // ---------------------------------------------------------------------------
 // HTML-to-text extraction
@@ -100,8 +109,17 @@ export function buildFetchRequestInit(signal: AbortSignal | undefined): RequestI
 	};
 }
 
-export async function fetchUrlOrThrow(url: string, signal: AbortSignal | undefined): Promise<Response> {
-	const res = await fetch(url, buildFetchRequestInit(signal));
+export async function fetchUrlOrThrow(
+	url: string,
+	signal: AbortSignal | undefined,
+	options: Omit<SafeFetchOptions, "signal"> = {},
+): Promise<Response> {
+	const res = await fetchRemoteUrl(url, buildFetchRequestInit(signal), {
+		allowRanges: options.allowRanges,
+		trustEnvProxy: options.trustEnvProxy,
+		domainPolicy: options.domainPolicy,
+		lookup: options.lookup,
+	});
 	if (!res.ok) {
 		throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
 	}
@@ -124,8 +142,13 @@ export async function extractBodyAsText(
 // (Brave/Serper/SearXNG). Bundles the quartet — fetchUrlOrThrow →
 // content-type assertion → body extraction → FetchResponse envelope — so
 // providers collapse to a single delegating call.
-export async function fetchViaGenericHtml(url: string, raw: boolean, signal?: AbortSignal): Promise<FetchResponse> {
-	const res = await fetchUrlOrThrow(url, signal);
+export async function fetchViaGenericHtml(
+	url: string,
+	raw: boolean,
+	signal?: AbortSignal,
+	options: Omit<SafeFetchOptions, "signal"> = {},
+): Promise<FetchResponse> {
+	const res = await fetchUrlOrThrow(url, signal, options);
 	const contentType = res.headers.get("content-type") ?? "";
 	assertTextContentType(contentType);
 	const { text, title } = await extractBodyAsText(res, contentType, raw);

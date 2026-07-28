@@ -1,6 +1,33 @@
 # Changelog
 
-All notable changes to `@juicesharp/rpiv-web-tools` are documented here.
+All notable changes to `pi-web-tools` (formerly `@juicesharp/rpiv-web-tools`) are documented here.
+
+## 2.0.0
+
+### Breaking
+- Renamed package/extension to **`pi-web-tools`** (config dir `~/.pi/agent/extensions/pi-web-tools/`). Legacy `rpiv-web-tools` config is auto-migrated.
+
+### Added (tool surface)
+- `get_search_content` — session storage + offset/limit paging
+- `source_check` — claim verification with passage citations
+- `one_search`: `queries`, `recencyFilter`, `domainFilter`, `provider`, `includeContent`, `workflow`
+- `web_fetch`: `urls[]` batch
+- Commands: `/search`, `/curator`, `/websearch`
+- Activity monitor: `/activity [on|off|toggle|show|clear]` (no shortcut)
+
+### Added (fetch)
+- PDF text extraction via `pdftotext` → `~/Downloads`
+- Next.js RSC flight extraction
+- Blocked-page fallbacks: configured fetch providers → Jina Reader
+- `fetchContent.domainPolicy` allow/deny
+
+### Added (security / ops)
+- SSRF: DNS preflight, redirect validation, `ssrf.allowRanges`, `ssrf.trustEnvProxy`
+- Activity log for search/fetch calls
+
+### Notes
+- Video/YouTube understanding intentionally not ported from pi-web-access
+- Full browser curator UI not ported; use `workflow: auto-summary` + `/websearch` instead
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

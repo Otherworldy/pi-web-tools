@@ -240,7 +240,7 @@ function normalizeClonePath(value: unknown, fallback: string): string {
 	return normalized.length > 0 ? normalized : fallback;
 }
 
-// Two-tier resolution: user config (~/.config/rpiv-web-tools/config.json under
+// Two-tier resolution: user config (~/.config/pi-web-tools/config.json under
 // `interceptors.github`) wins over the consumer programmatic default passed
 // to registerWebTools. GitHub is enabled by default; boolean `false` in user
 // config explicitly turns it off. Object form implies enabled unless it sets
@@ -439,7 +439,7 @@ export class GitHubInterceptor implements UrlInterceptor {
 	private showGhHint(): void {
 		if (!this.ghHintShown) {
 			this.ghHintShown = true;
-			console.error("[rpiv-web-tools] Install `gh` CLI for better GitHub repo access including private repos.");
+			console.error("[pi-web-tools] Install `gh` CLI for better GitHub repo access including private repos.");
 		}
 	}
 

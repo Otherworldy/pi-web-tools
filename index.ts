@@ -1,16 +1,20 @@
 /**
- * rpiv-web-tools — Pi extension
+ * pi-web-tools — Pi extension
  *
- * Registers the `one_search` and `web_fetch` tools, plus the
- * `/web-tools` slash command. Body lives in `web-tools.ts`.
- *
- * Config persists under the Pi agent extension config directory. Source env vars
- * (e.g. BRAVE_SEARCH_API_KEY, TAVILY_API_KEY) win over the config file.
+ * Registers one_search, web_fetch, get_search_content, source_check tools,
+ * plus /web-tools, /search, /curator, /websearch, /activity commands.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildInterceptors } from "./providers/interceptors/index.js";
-import { registerWebFetchTool, registerWebSearchConfigCommand, registerWebSearchTool } from "./web-tools.js";
+import {
+	registerActivityAndCommands,
+	registerGetSearchContentTool,
+	registerSourceCheckTool,
+	registerWebFetchTool,
+	registerWebSearchConfigCommand,
+	registerWebSearchTool,
+} from "./web-tools.js";
 
 export { createSearchProvider } from "./providers/factory.js";
 export {
@@ -36,15 +40,14 @@ export {
 	DEFAULT_WEB_FETCH_SNIPPET,
 	DEFAULT_WEB_SEARCH_GUIDELINES,
 	DEFAULT_WEB_SEARCH_SNIPPET,
+	registerActivityAndCommands,
+	registerGetSearchContentTool,
+	registerSourceCheckTool,
 	registerWebFetchTool,
 	registerWebSearchConfigCommand,
 	registerWebSearchTool,
 } from "./web-tools.js";
 
-// Programmatic consumer-side override for URL interceptors. Tier 2 in the
-// resolution model: end-user config (Tier 1) still wins. GitHub is enabled
-// by default; pass { interceptors: { github: false } } to disable it for a
-// consumer when user config is absent.
 export interface RegisterOptions {
 	interceptors?: {
 		github?: boolean;
@@ -55,5 +58,8 @@ export default function registerWebTools(pi: ExtensionAPI, opts?: RegisterOption
 	buildInterceptors(opts?.interceptors);
 	registerWebSearchTool(pi);
 	registerWebFetchTool(pi);
+	registerGetSearchContentTool(pi);
+	registerSourceCheckTool(pi);
 	registerWebSearchConfigCommand(pi);
+	registerActivityAndCommands(pi);
 }

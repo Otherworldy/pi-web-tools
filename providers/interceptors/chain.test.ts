@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import registerWebTools from "../../index.js";
 import { configPath } from "../config.js";
 
-const CONFIG_PATH = configPath("rpiv-web-tools");
+const CONFIG_PATH = configPath("pi-web-tools");
 
 function writeConfig(contents: unknown) {
 	mkdirSync(dirname(CONFIG_PATH), { recursive: true });

@@ -1,5 +1,5 @@
 /**
- * Single typed reader/writer for the rpiv-web-tools Pi extension config.
+ * Single typed reader/writer for the pi-web-tools Pi extension config.
  *
  * Canonical config uses a multi-source search shape:
  *
@@ -56,6 +56,25 @@ export interface GitHubInterceptorOptionsConfig {
 	[key: string]: unknown;
 }
 
+export type WorkflowMode = "none" | "auto-summary";
+
+export interface DomainPolicyConfig {
+	allow?: string[];
+	deny?: string[];
+	[key: string]: unknown;
+}
+
+export interface FetchContentConfig {
+	domainPolicy?: DomainPolicyConfig;
+	[key: string]: unknown;
+}
+
+export interface SsrfConfigFields {
+	allowRanges?: string[];
+	trustEnvProxy?: boolean;
+	[key: string]: unknown;
+}
+
 export interface WebToolsConfig {
 	search?: SearchConfig;
 	guidance?: {
@@ -65,6 +84,13 @@ export interface WebToolsConfig {
 	};
 	interceptors?: {
 		github?: boolean | GitHubInterceptorOptionsConfig;
+		[key: string]: unknown;
+	};
+	workflow?: WorkflowMode;
+	ssrf?: SsrfConfigFields;
+	fetchContent?: FetchContentConfig;
+	shortcuts?: {
+		activity?: string;
 		[key: string]: unknown;
 	};
 
@@ -82,17 +108,25 @@ export interface WebToolsConfig {
 export const WebToolsConfigSchema = { type: "object" } as const;
 
 const CONFIG_FILE_MODE = 0o600;
-const EXTENSION_NAME = "rpiv-web-tools";
+const EXTENSION_NAME = "pi-web-tools";
+const LEGACY_EXTENSION_NAMES = ["rpiv-web-tools"] as const;
 const CONFIG_FILE_NAME = "config.json";
 const LEGACY_CONFIG_PATH = join(homedir(), ".config", EXTENSION_NAME, CONFIG_FILE_NAME);
-const CONFIG_PATH = configPath(EXTENSION_NAME);
+const LEGACY_RPIV_HOME_CONFIG = join(homedir(), ".config", "rpiv-web-tools", CONFIG_FILE_NAME);
+const CONFIG_PATH_ENV = "PI_WEB_TOOLS_CONFIG_PATH";
 
 export function configPath(name: string, file: string = CONFIG_FILE_NAME): string {
 	return join(getAgentDir(), "extensions", name, file);
 }
 
+function defaultConfigPath(): string {
+	const override = process.env[CONFIG_PATH_ENV]?.trim();
+	if (override) return override;
+	return configPath(EXTENSION_NAME);
+}
+
 export function getConfigPath(): string {
-	return CONFIG_PATH;
+	return defaultConfigPath();
 }
 
 export function getLegacyConfigPath(): string {
@@ -182,6 +216,30 @@ function isInterceptorsConfig(value: unknown): boolean {
 	return true;
 }
 
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isDomainPolicyConfig(value: unknown): boolean {
+	if (!isPlainObject(value)) return false;
+	if ("allow" in value && value.allow !== undefined && !isStringArray(value.allow)) return false;
+	if ("deny" in value && value.deny !== undefined && !isStringArray(value.deny)) return false;
+	return true;
+}
+
+function isFetchContentConfig(value: unknown): boolean {
+	if (!isPlainObject(value)) return false;
+	if ("domainPolicy" in value && value.domainPolicy !== undefined && !isDomainPolicyConfig(value.domainPolicy)) return false;
+	return true;
+}
+
+function isSsrfConfig(value: unknown): boolean {
+	if (!isPlainObject(value)) return false;
+	if ("allowRanges" in value && value.allowRanges !== undefined && !isStringArray(value.allowRanges)) return false;
+	if ("trustEnvProxy" in value && value.trustEnvProxy !== undefined && typeof value.trustEnvProxy !== "boolean") return false;
+	return true;
+}
+
 function isWebToolsConfig(value: unknown): value is WebToolsConfig {
 	if (!isPlainObject(value)) return false;
 	if ("search" in value && value.search !== undefined && !isSearchConfig(value.search)) return false;
@@ -198,6 +256,16 @@ function isWebToolsConfig(value: unknown): value is WebToolsConfig {
 	if ("apiKey" in value && value.apiKey !== undefined && typeof value.apiKey !== "string") return false;
 	if ("guidance" in value && value.guidance !== undefined && !isGuidanceConfig(value.guidance)) return false;
 	if ("interceptors" in value && value.interceptors !== undefined && !isInterceptorsConfig(value.interceptors)) return false;
+	if (
+		"workflow" in value &&
+		value.workflow !== undefined &&
+		value.workflow !== "none" &&
+		value.workflow !== "auto-summary"
+	) {
+		return false;
+	}
+	if ("ssrf" in value && value.ssrf !== undefined && !isSsrfConfig(value.ssrf)) return false;
+	if ("fetchContent" in value && value.fetchContent !== undefined && !isFetchContentConfig(value.fetchContent)) return false;
 	return true;
 }
 
@@ -277,7 +345,7 @@ function loadJsonConfig(path: string): unknown {
 		if (!isPlainObject(parsed)) return {};
 		return parsed;
 	} catch (err) {
-		console.warn(`rpiv-web-tools: invalid JSON at ${path}, using default ({}) — ${(err as Error).message}`);
+		console.warn(`pi-web-tools: invalid JSON at ${path}, using default ({}) — ${(err as Error).message}`);
 		return {};
 	}
 }
@@ -314,19 +382,35 @@ export function validateGuidanceFields(fields: unknown): GuidanceFields {
 	return result;
 }
 
+function resolveConfigReadPath(): { path: string; migrate: boolean } {
+	const primary = defaultConfigPath();
+	// Env override is authoritative (used by tests); skip legacy migration paths.
+	if (process.env[CONFIG_PATH_ENV]?.trim()) {
+		return { path: primary, migrate: false };
+	}
+	if (existsSync(primary)) return { path: primary, migrate: false };
+	if (existsSync(LEGACY_CONFIG_PATH)) return { path: LEGACY_CONFIG_PATH, migrate: true };
+	if (existsSync(LEGACY_RPIV_HOME_CONFIG)) return { path: LEGACY_RPIV_HOME_CONFIG, migrate: true };
+	for (const legacyName of LEGACY_EXTENSION_NAMES) {
+		const legacyPath = configPath(legacyName);
+		if (existsSync(legacyPath)) return { path: legacyPath, migrate: true };
+	}
+	return { path: primary, migrate: false };
+}
+
 export function readConfig(): WebToolsConfig {
-	const shouldReadLegacyPath = !existsSync(CONFIG_PATH) && existsSync(LEGACY_CONFIG_PATH);
-	const raw = loadJsonConfig(shouldReadLegacyPath ? LEGACY_CONFIG_PATH : CONFIG_PATH);
+	const { path, migrate } = resolveConfigReadPath();
+	const raw = loadJsonConfig(path);
 	if (!isWebToolsConfig(raw)) return {};
 	const canonical = toCanonicalConfig(raw);
-	if (shouldReadLegacyPath || hasLegacyConfigShape(raw)) {
-		saveJsonConfig(CONFIG_PATH, canonical);
+	if (migrate || hasLegacyConfigShape(raw)) {
+		saveJsonConfig(defaultConfigPath(), canonical);
 	}
 	return canonical;
 }
 
 export function writeConfig(c: WebToolsConfig): boolean {
-	return saveJsonConfig(CONFIG_PATH, toCanonicalConfig(c));
+	return saveJsonConfig(defaultConfigPath(), toCanonicalConfig(c));
 }
 
 // Plan-surface no-op. Phase 4 omits the in-memory cache the plan sketched —
