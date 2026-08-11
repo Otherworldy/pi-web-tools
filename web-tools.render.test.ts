@@ -41,6 +41,21 @@ describe("one_search renderResult", () => {
 		expect(rendered(node)).toContain("Searching...");
 	});
 
+	it("renders a determinate progress bar while partial", () => {
+		const { search } = setup();
+		const node = search.renderResult?.(
+			{
+				content: [],
+				details: { progress: { completed: 2, total: 4, message: "Searching Brave..." } },
+			} as never,
+			{ isPartial: true } as never,
+			theme,
+			undefined as never,
+		) as Text;
+		expect(rendered(node)).toContain("Searching Brave...");
+		expect(rendered(node)).toContain("[███   ] 2/4");
+	});
+
 	it("pluralizes result count (0 → results, 1 → result, 3 → results)", () => {
 		const { search } = setup();
 		const node = (count: number) =>

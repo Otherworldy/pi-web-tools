@@ -13,7 +13,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -462,6 +462,37 @@ interface OneSearchParams {
 	workflow?: "none" | "auto-summary";
 }
 
+interface SearchProgress {
+	completed: number;
+	total: number;
+	message: string;
+}
+
+interface SearchProgressDetails {
+	progress?: SearchProgress;
+}
+
+const SEARCH_PROGRESS_BAR_WIDTH = 6;
+
+function formatSearchProgressBar(completed: number, total: number): string {
+	const ratio = total > 0 ? Math.min(1, Math.max(0, completed / total)) : 0;
+	const filled = Math.round(ratio * SEARCH_PROGRESS_BAR_WIDTH);
+	return `[${"█".repeat(filled)}${" ".repeat(SEARCH_PROGRESS_BAR_WIDTH - filled)}] ${completed}/${total}`;
+}
+
+function emitSearchProgress(
+	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+	completed: number,
+	total: number,
+	message: string,
+): void {
+	const progress = { completed, total, message };
+	onUpdate?.({
+		content: [{ type: "text", text: `${message} ${formatSearchProgressBar(completed, total)}` }],
+		details: { progress },
+	});
+}
+
 async function spillFullContentToTempFile(content: string): Promise<string> {
 	const tempDir = await mkdtemp(join(tmpdir(), FETCH_TEMP_DIR_PREFIX));
 	const tempFile = join(tempDir, FETCH_TEMP_FILE_NAME);
@@ -644,11 +675,15 @@ export function registerWebSearchTool(pi: ExtensionAPI): void {
 			const sourceResultLimits = buildSourceResultLimits(config, providerNames);
 			const primaryQuery = queries[0];
 			const workflow = p.workflow ?? config.workflow ?? "none";
+			const totalSearches = queries.length * providers.length;
+			let completedSearches = 0;
 
-			onUpdate?.({
-				content: [{ type: "text", text: `Searching ${searchableProviderLabels(providers)} for: "${primaryQuery}"...` }],
-				details: { query: primaryQuery, backends: providerNames, resultCount: 0 },
-			});
+			emitSearchProgress(
+				onUpdate,
+				0,
+				totalSearches,
+				`Searching ${searchableProviderLabels(providers)} for: "${primaryQuery}"...`,
+			);
 
 			const queryDatas: Array<{
 				query: string;
@@ -664,10 +699,22 @@ export function registerWebSearchTool(pi: ExtensionAPI): void {
 				const q = applyRecency(rawQuery, p.recencyFilter);
 				try {
 					const settled = await Promise.allSettled(
-						providers.map(async ({ providerName, provider }) => ({
-							providerName,
-							response: await provider.search(q, sourceResultLimits[providerName], signal),
-						})),
+						providers.map(async ({ providerName, provider }) => {
+							try {
+								return {
+									providerName,
+									response: await provider.search(q, sourceResultLimits[providerName], signal),
+								};
+							} finally {
+								completedSearches += 1;
+								emitSearchProgress(
+									onUpdate,
+									completedSearches,
+									totalSearches,
+									`Searching ${providerName} for: "${rawQuery}"...`,
+								);
+							}
+						}),
 					);
 					throwIfAborted(signal);
 					const successfulResponses: Array<{ providerName: string; response: SearchResponse }> = [];
@@ -814,7 +861,17 @@ export function registerWebSearchTool(pi: ExtensionAPI): void {
 
 		renderResult(result, { expanded, isPartial }, theme, _context) {
 			if (isPartial) {
-				return new Text(theme.fg("warning", "Searching..."), 0, 0);
+				const progress = (result.details as SearchProgressDetails | undefined)?.progress;
+				return new Text(
+					theme.fg(
+						"warning",
+						progress
+							? `${progress.message} ${formatSearchProgressBar(progress.completed, progress.total)}`
+							: "Searching...",
+					),
+					0,
+					0,
+				);
 			}
 			const details = result.details as { resultCount?: number; results?: SearchResult[] };
 			const count = details?.resultCount ?? 0;
@@ -1140,22 +1197,35 @@ export function registerSourceCheckTool(pi: ExtensionAPI): void {
 				throw new Error(`No search sources enabled/configured. Run /${WEB_TOOLS_COMMAND_NAME} first.`);
 			}
 
-			onUpdate?.({ content: [{ type: "text", text: `Checking claim: "${claim}"...` }], details: {} });
-
 			const allResults: SearchResult[] = [];
 			const errors: Array<{ query: string; error: string }> = [];
 			const providerNames = providers.map((x) => x.providerName);
 			const sourceResultLimits = buildSourceResultLimits(config, providerNames);
+			const totalSearches = queries.length * providers.length;
+			let completedSearches = 0;
+			emitSearchProgress(onUpdate, 0, totalSearches, `Checking claim: "${claim}"...`);
 
 			for (const rawQuery of queries) {
 				const q = applyRecency(rawQuery, p.recencyFilter);
 				const activityId = activityMonitor.logStart({ type: "api", query: `source_check: ${rawQuery}` });
 				try {
 					const settled = await Promise.allSettled(
-						providers.map(async ({ providerName, provider }) => ({
-							providerName,
-							response: await provider.search(q, sourceResultLimits[providerName], signal),
-						})),
+						providers.map(async ({ providerName, provider }) => {
+							try {
+								return {
+									providerName,
+									response: await provider.search(q, sourceResultLimits[providerName], signal),
+								};
+							} finally {
+								completedSearches += 1;
+								emitSearchProgress(
+									onUpdate,
+									completedSearches,
+									totalSearches,
+									`Checking ${providerName} for: "${rawQuery}"...`,
+								);
+							}
+						}),
 					);
 					const ok = settled
 						.filter((r): r is PromiseFulfilledResult<{ providerName: string; response: SearchResponse }> => r.status === "fulfilled")
@@ -1247,7 +1317,19 @@ export function registerSourceCheckTool(pi: ExtensionAPI): void {
 			);
 		},
 		renderResult(result, { isPartial }, theme) {
-			if (isPartial) return new Text(theme.fg("warning", "Checking..."), 0, 0);
+			if (isPartial) {
+				const progress = (result.details as SearchProgressDetails | undefined)?.progress;
+				return new Text(
+					theme.fg(
+						"warning",
+						progress
+							? `${progress.message} ${formatSearchProgressBar(progress.completed, progress.total)}`
+							: "Checking...",
+					),
+					0,
+					0,
+				);
+			}
 			const status = (result.details as { status?: string } | undefined)?.status ?? "done";
 			return new Text(theme.fg("success", `✓ ${status}`), 0, 0);
 		},

@@ -281,6 +281,31 @@ describe.each(PROVIDER_MATRIX)("one_search.execute — $provider", ({
 });
 
 describe("one_search.execute — source-independent behavior", () => {
+	it("reports provider progress through tool updates", async () => {
+		process.env.BRAVE_SEARCH_API_KEY = "k";
+		stubFetch([
+			{
+				match: (u) => u.includes("api.search.brave.com"),
+				response: () => new Response(JSON.stringify({ web: { results: [] } }), { status: 200 }),
+			},
+		]);
+		const { captured } = registerAndCapture();
+		const updates: Array<{ content: Array<{ text?: string }>; details: { progress?: { completed: number; total: number } } }> = [];
+		await captured.tools.get("one_search")?.execute?.(
+			"tc",
+			{ queries: ["first", "second"] },
+			undefined as never,
+			((update: unknown) => updates.push(update as (typeof updates)[number])) as never,
+			createMockCtx(),
+		);
+		expect(updates.map((update) => update.details.progress)).toEqual([
+			{ completed: 0, total: 2 },
+			{ completed: 1, total: 2 },
+			{ completed: 2, total: 2 },
+		]);
+		expect(updates[1]?.content[0]?.text).toContain("[███   ] 1/2");
+	});
+
 	it("uses the built-in per-source default result count", async () => {
 		process.env.BRAVE_SEARCH_API_KEY = "k";
 		const stub = stubFetch([
